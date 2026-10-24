@@ -6,6 +6,7 @@
 //! in an empty temp directory so it cannot pick up the project (or its own
 //! instruction files), with a wall-clock timeout enforced here.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::io::{Read, Write};
@@ -42,6 +43,17 @@ pub struct SummarizerDef {
     /// How to log in, shown when the CLI reports an authentication failure.
     #[serde(default)]
     pub login: Option<String>,
+    /// Extra environment for the CLI (e.g. trust the headless working directory).
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
+static ANSI_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]").unwrap());
+
+/// Drop terminal colour / cursor escape sequences from CLI output.
+fn strip_ansi(s: &str) -> String {
+    ANSI_RE.replace_all(s, "").into_owned()
 }
 
 /// Why a summary could not be produced.
@@ -68,7 +80,7 @@ struct AuthError(String);
 
 static AUTH_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)not logged in|failed to authenticat|please (log ?in|sign ?in)|oauth|unauthori[sz]ed|\b401\b|invalid api key|api key (is )?(missing|required|not set)|run `?\S+ login|/login",
+        r"(?i)not logged in|error authenticating|failed to authenticat|please (log ?in|sign ?in)|oauth|unauthori[sz]ed|\b401\b|invalid api key|api key (is )?(missing|required|not set)|run `?\S+ login|/login",
     )
     .unwrap()
 });
@@ -170,6 +182,7 @@ fn run_inner(provider: &Provider, source: &Path, content: &str) -> Result<Summar
 
     let mut child = Command::new(&provider.path)
         .args(&args)
+        .envs(&def.env)
         .current_dir(work.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -211,8 +224,8 @@ fn run_inner(provider: &Provider, source: &Path, content: &str) -> Result<Summar
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    let out = out_reader.join().unwrap_or_default();
-    let err = err_reader.join().unwrap_or_default();
+    let out = strip_ansi(&out_reader.join().unwrap_or_default());
+    let err = strip_ansi(&err_reader.join().unwrap_or_default());
 
     let text = out.trim().to_string();
     let auth = looks_like_auth_failure(&out, &err);
@@ -224,6 +237,7 @@ fn run_inner(provider: &Provider, source: &Path, content: &str) -> Result<Summar
         let tail: String = source_text
             .lines()
             .filter(|l| !l.trim().is_empty())
+            .filter(|l| !is_noise(l))
             .rev()
             .take(6)
             .collect::<Vec<_>>()
@@ -282,6 +296,7 @@ mod tests {
             args: vec!["-p".into(), "{prompt}".into(), "{file}".into()],
             content,
             login: None,
+            env: Default::default(),
         };
         (dir, Provider { def, path })
     }
@@ -347,6 +362,32 @@ mod tests {
     }
 
     #[test]
+    fn provider_env_is_applied_and_ansi_stripped() {
+        let (_d, mut p) = fake_provider(
+            "printf 'trust=%s\\n' \"$GEMINI_CLI_TRUST_WORKSPACE\"; printf '\\033[31mred\\033[0m warning\\n' >&2; exit 4",
+            ContentMode::Stdin,
+        );
+        p.def
+            .env
+            .insert("GEMINI_CLI_TRUST_WORKSPACE".into(), "true".into());
+        let f = run(&p, Path::new("/x/notes.md"), "x").unwrap_err();
+        assert!(f.message.contains("red warning"), "{f}");
+        assert!(!f.message.contains('\u{1b}'), "{f:?}");
+
+        let (_d, mut p) = fake_provider(
+            "printf 'trust=%s' \"$GEMINI_CLI_TRUST_WORKSPACE\"",
+            ContentMode::Stdin,
+        );
+        p.def
+            .env
+            .insert("GEMINI_CLI_TRUST_WORKSPACE".into(), "true".into());
+        assert_eq!(
+            run(&p, Path::new("/x/notes.md"), "x").unwrap().text,
+            "trust=true"
+        );
+    }
+
+    #[test]
     fn failure_reports_stderr_tail() {
         let (_d, p) = fake_provider(r#"echo "not logged in" >&2; exit 3"#, ContentMode::Stdin);
         let err = run(&p, Path::new("/x/notes.md"), "x")
@@ -355,4 +396,12 @@ mod tests {
         assert!(err.contains("exited with 3"), "{err}");
         assert!(err.contains("not logged in"), "{err}");
     }
+}
+
+/// Stack frames and bare JSON punctuation add nothing to an error message.
+fn is_noise(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("at ")
+        || t.chars()
+            .all(|c| matches!(c, '{' | '}' | '[' | ']' | ',' | ' '))
 }

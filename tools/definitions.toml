@@ -703,6 +703,8 @@ bin = "gemini"
 login = "run `gemini` and pick a sign-in method"
 args = ["-p", "{prompt}", "--approval-mode", "plan", "-o", "text"]
 content = "stdin"
+# Headless runs happen in an empty temp dir, which Gemini treats as untrusted.
+env = { GEMINI_CLI_TRUST_WORKSPACE = "true" }
 
 # Antigravity CLI replaced Gemini CLI for consumer tiers in June 2026.
 [[summarizer]]

@@ -249,6 +249,7 @@ fn summarize_flow_with_fake_provider() {
             args: vec!["-p".into(), "{prompt}".into()],
             content: ContentMode::Stdin,
             login: None,
+            env: Default::default(),
         },
         path: script,
     }]);
