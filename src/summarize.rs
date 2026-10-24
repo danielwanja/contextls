@@ -276,6 +276,14 @@ fn run_inner(provider: &Provider, source: &Path, content: &str) -> Result<Summar
     })
 }
 
+/// Stack frames and bare JSON punctuation add nothing to an error message.
+fn is_noise(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("at ")
+        || t.chars()
+            .all(|c| matches!(c, '{' | '}' | '[' | ']' | ',' | ' '))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,12 +404,4 @@ mod tests {
         assert!(err.contains("exited with 3"), "{err}");
         assert!(err.contains("not logged in"), "{err}");
     }
-}
-
-/// Stack frames and bare JSON punctuation add nothing to an error message.
-fn is_noise(line: &str) -> bool {
-    let t = line.trim();
-    t.starts_with("at ")
-        || t.chars()
-            .all(|c| matches!(c, '{' | '}' | '[' | ']' | ',' | ' '))
 }
