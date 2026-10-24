@@ -1,6 +1,6 @@
 //! TUI state: inventory, tree selection, filter, preview cache.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,7 @@ use tui_tree_widget::{TreeItem, TreeState};
 
 use crate::cli::Grouping;
 use crate::model::{Entry, Install, Inventory, Scope, ToolReport};
-use crate::output::fmt_tokens;
+use crate::output::{fmt_age_short, fmt_tokens};
 use crate::scan::{ScanOptions, scan_with};
 use crate::tools::schema::Definitions;
 
@@ -320,13 +320,16 @@ impl App {
         vis: &[Vec<bool>],
     ) -> Option<TreeItem<'static, String>> {
         let mut scopes = Vec::new();
+        let dups = dup_memory_names(tool);
         for scope in SCOPES {
             let leaves: Vec<_> = tool
                 .entries
                 .iter()
                 .enumerate()
                 .filter(|(i, e)| e.scope == scope && vis[t][*i])
-                .map(|(i, e)| TreeItem::new_leaf(entry_id(t, i), entry_line(e)))
+                .map(|(i, e)| {
+                    TreeItem::new_leaf(entry_id(t, i), entry_line(e, dups.contains(&e.file_name())))
+                })
                 .collect();
             if leaves.is_empty() {
                 continue;
@@ -396,12 +399,18 @@ impl App {
                 if !self.active(t) {
                     continue;
                 }
+                let dups = dup_memory_names(tool);
                 let leaves: Vec<_> = tool
                     .entries
                     .iter()
                     .enumerate()
                     .filter(|(i, e)| e.scope == scope && vis[t][*i])
-                    .map(|(i, e)| TreeItem::new_leaf(entry_id(t, i), entry_line(e)))
+                    .map(|(i, e)| {
+                        TreeItem::new_leaf(
+                            entry_id(t, i),
+                            entry_line(e, dups.contains(&e.file_name())),
+                        )
+                    })
                     .collect();
                 if leaves.is_empty() {
                     continue;
@@ -530,7 +539,21 @@ fn scope_line(scope: Scope, n: usize) -> Line<'static> {
     ])
 }
 
-fn entry_line(e: &Entry) -> Line<'static> {
+/// Auto-memory file names that occur more than once within a tool, so the
+/// tree can disambiguate them with their parent directory.
+fn dup_memory_names(tool: &ToolReport) -> HashSet<String> {
+    let mut seen = HashSet::new();
+    let mut dups = HashSet::new();
+    for e in tool.entries.iter().filter(|e| e.scope == Scope::AutoMemory) {
+        let name = e.file_name();
+        if !seen.insert(name.clone()) {
+            dups.insert(name);
+        }
+    }
+    dups
+}
+
+fn entry_line(e: &Entry, show_parent: bool) -> Line<'static> {
     let mut spans = vec![Span::styled(
         format!("{:>2} ", e.order),
         Style::new().dark_gray(),
@@ -540,13 +563,26 @@ fn entry_line(e: &Entry) -> Line<'static> {
     } else {
         Style::new().dark_gray().crossed_out()
     };
-    // Auto-memory paths are long and all share one directory: show the file name.
+    // Auto-memory paths are long and share one directory: show the file name,
+    // plus its parent when several memories share a name (plan.md, plan.md…).
     let name = if e.scope == Scope::AutoMemory {
-        e.file_name()
+        let parent = e
+            .path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned());
+        match (show_parent, parent) {
+            (true, Some(p)) => format!("{p}/{}", e.file_name()),
+            _ => e.file_name(),
+        }
     } else {
         e.display_path.clone()
     };
     spans.push(Span::styled(name, name_style));
+    let age = fmt_age_short(e.mtime);
+    if !age.is_empty() {
+        spans.push(Span::styled(format!(" {age}"), Style::new().dark_gray()));
+    }
     for b in badges(e) {
         spans.push(Span::styled(
             format!(" {b}"),

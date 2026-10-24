@@ -32,9 +32,29 @@ pub fn fmt_age(t: Option<SystemTime>) -> String {
         .duration_since(t)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let (n, unit) = if secs < 60 {
+    if secs < 60 {
         return "just now".into();
-    } else if secs < 3600 {
+    }
+    let (n, unit) = age_parts(secs);
+    format!("{n}{unit} ago")
+}
+
+/// Compact age for tight columns: "3d", "2h", "now". Empty when unknown.
+pub fn fmt_age_short(t: Option<SystemTime>) -> String {
+    let Some(t) = t else { return String::new() };
+    let secs = SystemTime::now()
+        .duration_since(t)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if secs < 60 {
+        return "now".into();
+    }
+    let (n, unit) = age_parts(secs);
+    format!("{n}{unit}")
+}
+
+fn age_parts(secs: u64) -> (u64, &'static str) {
+    if secs < 3600 {
         (secs / 60, "m")
     } else if secs < 86_400 {
         (secs / 3600, "h")
@@ -44,6 +64,5 @@ pub fn fmt_age(t: Option<SystemTime>) -> String {
         (secs / (30 * 86_400), "mo")
     } else {
         (secs / (365 * 86_400), "y")
-    };
-    format!("{n}{unit} ago")
+    }
 }
