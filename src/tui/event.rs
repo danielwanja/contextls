@@ -64,6 +64,7 @@ fn handle_key(terminal: &mut DefaultTerminal, app: &mut App, key: KeyEvent) -> R
             }
         }
         KeyCode::Char('g') => app.toggle_grouping(),
+        KeyCode::Char('a') => app.toggle_all_tools(),
         KeyCode::Char('m') => {
             app.show_missing = !app.show_missing;
             app.status = Some(

@@ -30,9 +30,12 @@ fn main() -> Result<()> {
     if args.json {
         println!("{}", output::json::render(&inventory)?);
     } else if args.plain || !std::io::stdout().is_terminal() {
-        print!("{}", output::table::render(&inventory, args.all));
+        print!(
+            "{}",
+            output::table::render(&inventory, args.all, args.all_tools)
+        );
     } else {
-        tui::run(defs, root, opts, inventory, args.group)?;
+        tui::run(defs, root, opts, inventory, args.group, args.all_tools)?;
     }
     Ok(())
 }

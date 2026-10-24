@@ -36,11 +36,13 @@ pub fn resolve_tool(def: &ToolDef, ctx: &Ctx) -> ToolReport {
         e.order = i + 1;
         e.tool = def.id.clone();
     }
+    let install = super::detect::detect(&def, ctx);
     ToolReport {
         id: def.id,
         name: def.name,
         homepage: def.homepage,
         notes: def.notes,
+        install,
         entries,
     }
 }
@@ -229,6 +231,13 @@ fn glob_matcher(pattern: &str) -> Option<GlobMatcher> {
 
 /// Files matching an absolute glob pattern, sorted.
 fn glob_files(pattern: &str) -> Vec<PathBuf> {
+    glob_paths(pattern, false)
+}
+
+/// Paths matching an absolute glob pattern, sorted. Without `**` the walk
+/// goes only as deep as the pattern has components, so `~/x/*.md` never
+/// descends into `~/x/sub/`.
+pub fn glob_paths(pattern: &str, include_dirs: bool) -> Vec<PathBuf> {
     let pat = Path::new(pattern);
     let mut base = PathBuf::new();
     for comp in pat.components() {
@@ -244,14 +253,27 @@ fn glob_files(pattern: &str) -> Vec<PathBuf> {
     let Some(matcher) = glob_matcher(pattern) else {
         return Vec::new();
     };
+    let depth = if pattern.contains("**") {
+        None
+    } else {
+        Some(
+            pat.components()
+                .count()
+                .saturating_sub(base.components().count()),
+        )
+    };
     let mut files = Vec::new();
     let walker = WalkBuilder::new(&base)
         .standard_filters(false)
         .hidden(false)
+        .max_depth(depth)
         .sort_by_file_path(|a, b| a.cmp(b))
         .build();
     for dent in walker.flatten() {
-        if dent.file_type().is_some_and(|t| t.is_file()) && matcher.is_match(dent.path()) {
+        let ft = dent.file_type();
+        let wanted =
+            ft.is_some_and(|t| t.is_file()) || (include_dirs && ft.is_some_and(|t| t.is_dir()));
+        if wanted && matcher.is_match(dent.path()) {
             files.push(dent.into_path());
         }
     }

@@ -12,7 +12,7 @@ expression: term.backend()
 "│▾ Local  1                                    ││                                                                      │"
 "│  ▾ Claude Code  3 files · ≈28 tok            ││                                                                      │"
 "│       3 ./CLAUDE.local.md                    ││                                                                      │"
-"│                                              ││                                                                      │"
+"│▸ Not detected  1 tool · press a to expand all││                                                                      │"
 "│                                              ││                                                                      │"
 "│                                              ││                                                                      │"
 "│                                              ││                                                                      │"

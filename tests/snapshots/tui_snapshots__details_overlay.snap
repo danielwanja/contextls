@@ -12,7 +12,7 @@ expression: term.backend()
 "│▾ Cu│  tool        Claude Code                                                               │    │"
 "│  ▾ │  scope       Project                                                                   │    │"
 "│    │  loads       always                                                                    │    │"
-"│    │  size        60 B · ≈15 tokens                                                         │    │"
+"│▸ No│  size        60 B · ≈15 tokens                                                         │    │"
 "│    │  modified    -                                                                         │    │"
 "│    │  git         tracked                                                                   │    │"
 "│    │  also by     cursor                                                                    │    │"

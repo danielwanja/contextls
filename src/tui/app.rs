@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use tui_tree_widget::{TreeItem, TreeState};
 
 use crate::cli::Grouping;
-use crate::model::{Entry, Inventory, Scope, ToolReport};
+use crate::model::{Entry, Install, Inventory, Scope, ToolReport};
 use crate::output::fmt_tokens;
 use crate::scan::{ScanOptions, scan_with};
 use crate::tools::schema::Definitions;
@@ -45,6 +45,8 @@ pub struct App {
     pub inv: Inventory,
     pub grouping: Grouping,
     pub show_missing: bool,
+    /// Treat not-detected tools like any other instead of collapsing them.
+    pub show_all_tools: bool,
     pub focus: Focus,
     pub overlay: Overlay,
     pub tree: TreeState<String>,
@@ -68,6 +70,7 @@ impl App {
         opts: ScanOptions,
         inv: Inventory,
         grouping: Grouping,
+        all_tools: bool,
     ) -> Self {
         let mut app = App {
             defs,
@@ -76,6 +79,7 @@ impl App {
             inv,
             grouping,
             show_missing: false,
+            show_all_tools: all_tools,
             focus: Focus::Tree,
             overlay: Overlay::None,
             tree: TreeState::default(),
@@ -115,12 +119,34 @@ impl App {
             Grouping::Tool => Grouping::Scope,
             Grouping::Scope => Grouping::Tool,
         };
+        self.rebuild_keeping_selection();
+    }
+
+    pub fn toggle_all_tools(&mut self) {
+        self.show_all_tools = !self.show_all_tools;
+        self.status = Some(
+            if self.show_all_tools {
+                "showing not-detected tools as regular tools"
+            } else {
+                "collapsing not-detected tools"
+            }
+            .into(),
+        );
+        self.rebuild_keeping_selection();
+    }
+
+    fn rebuild_keeping_selection(&mut self) {
         let selected = self.selected_index();
         self.open_all();
         match selected {
             Some((t, i)) => self.select_entry(t, i),
             None => self.select_first_entry(),
         }
+    }
+
+    /// Shown as a regular tool (not under "Not detected").
+    fn active(&self, t: usize) -> bool {
+        self.show_all_tools || self.inv.tools[t].active()
     }
 
     // ───────────────────────────────────────────────────────── selection
@@ -137,6 +163,17 @@ impl App {
         Some((tool, tool.entries.get(i)?))
     }
 
+    /// The tool whose header node is selected (either grouping).
+    pub fn selected_tool(&self) -> Option<&ToolReport> {
+        let id = self.tree.selected().last()?;
+        let tool_id = id.strip_prefix("t:").or_else(|| {
+            id.strip_prefix("T:")
+                .and_then(|r| r.split_once(':'))
+                .map(|(_, t)| t)
+        })?;
+        self.inv.tools.iter().find(|t| t.id == tool_id)
+    }
+
     pub fn select_entry(&mut self, t: usize, i: usize) {
         let path = self.id_path(t, i);
         for n in 1..path.len() {
@@ -148,12 +185,15 @@ impl App {
     }
 
     pub fn select_first_entry(&mut self) {
-        let first = self
-            .inv
-            .tools
-            .iter()
-            .enumerate()
-            .find_map(|(t, tool)| tool.entries.iter().position(|e| e.exists).map(|i| (t, i)));
+        let first_in = |active: bool| {
+            self.inv.tools.iter().enumerate().find_map(|(t, tool)| {
+                if self.active(t) != active {
+                    return None;
+                }
+                tool.entries.iter().position(|e| e.exists).map(|i| (t, i))
+            })
+        };
+        let first = first_in(true).or_else(|| first_in(false));
         match first {
             Some((t, i)) => self.select_entry(t, i),
             None => {
@@ -180,10 +220,19 @@ impl App {
         }
     }
 
-    /// Tree identifier path for an entry under the current grouping.
+    /// Tree identifier path for an entry under the current grouping. Tools that
+    /// are not active sit under the "Not detected" group, always tool-first.
     fn id_path(&self, t: usize, i: usize) -> Vec<String> {
         let tool = &self.inv.tools[t];
         let scope = tool.entries[i].scope;
+        if !self.active(t) {
+            return vec![
+                inactive_id(),
+                tool_id(tool),
+                scope_id(tool, scope),
+                entry_id(t, i),
+            ];
+        }
         match self.grouping {
             Grouping::Tool => vec![tool_id(tool), scope_id(tool, scope), entry_id(t, i)],
             Grouping::Scope => vec![
@@ -194,14 +243,17 @@ impl App {
         }
     }
 
+    /// Open every group node except "Not detected", which starts collapsed.
     fn open_all(&mut self) {
         let mut paths = Vec::new();
         for (t, tool) in self.inv.tools.iter().enumerate() {
-            for (i, e) in tool.entries.iter().enumerate() {
+            for i in 0..tool.entries.len() {
                 let p = self.id_path(t, i);
-                paths.push(p[..1].to_vec());
-                paths.push(p[..2].to_vec());
-                let _ = e;
+                for n in 1..p.len() {
+                    if p[..n] != [inactive_id()] {
+                        paths.push(p[..n].to_vec());
+                    }
+                }
             }
         }
         for p in paths {
@@ -260,34 +312,79 @@ impl App {
         }
     }
 
-    fn items_by_tool(&self, vis: &[Vec<bool>]) -> Vec<TreeItem<'static, String>> {
-        let mut out = Vec::new();
-        for (t, tool) in self.inv.tools.iter().enumerate() {
-            let mut scopes = Vec::new();
-            for scope in SCOPES {
-                let leaves: Vec<_> = tool
-                    .entries
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, e)| e.scope == scope && vis[t][*i])
-                    .map(|(i, e)| TreeItem::new_leaf(entry_id(t, i), entry_line(e)))
-                    .collect();
-                if leaves.is_empty() {
-                    continue;
-                }
-                let n = leaves.len();
-                scopes.push(
-                    TreeItem::new(scope_id(tool, scope), scope_line(scope, n), leaves)
-                        .expect("unique entry ids"),
-                );
-            }
-            if scopes.is_empty() && !self.filter.is_empty() {
+    /// One tool's subtree: Tool ▸ Scope ▸ entries. `None` when a filter leaves nothing.
+    fn tool_item(
+        &self,
+        t: usize,
+        tool: &ToolReport,
+        vis: &[Vec<bool>],
+    ) -> Option<TreeItem<'static, String>> {
+        let mut scopes = Vec::new();
+        for scope in SCOPES {
+            let leaves: Vec<_> = tool
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| e.scope == scope && vis[t][*i])
+                .map(|(i, e)| TreeItem::new_leaf(entry_id(t, i), entry_line(e)))
+                .collect();
+            if leaves.is_empty() {
                 continue;
             }
-            out.push(
-                TreeItem::new(tool_id(tool), tool_line(tool), scopes).expect("unique scope ids"),
+            let n = leaves.len();
+            scopes.push(
+                TreeItem::new(scope_id(tool, scope), scope_line(scope, n), leaves)
+                    .expect("unique entry ids"),
             );
         }
+        if scopes.is_empty() && !self.filter.is_empty() {
+            return None;
+        }
+        Some(
+            TreeItem::new(tool_id(tool), tool_line(tool, self.active(t)), scopes)
+                .expect("unique scope ids"),
+        )
+    }
+
+    /// The collapsed "Not detected" group holding every inactive tool.
+    fn inactive_group(&self, vis: &[Vec<bool>]) -> Option<TreeItem<'static, String>> {
+        let inactive: Vec<usize> = (0..self.inv.tools.len())
+            .filter(|t| !self.active(*t))
+            .collect();
+        if inactive.is_empty() {
+            return None;
+        }
+        let items: Vec<_> = inactive
+            .iter()
+            .filter_map(|&t| self.tool_item(t, &self.inv.tools[t], vis))
+            .collect();
+        if items.is_empty() {
+            return None;
+        }
+        let n = inactive.len();
+        let line = Line::from(vec![
+            Span::styled("Not detected", Style::new().dark_gray().bold()),
+            Span::styled(
+                format!(
+                    "  {n} tool{} · press a to expand all",
+                    if n == 1 { "" } else { "s" }
+                ),
+                Style::new().dark_gray().italic(),
+            ),
+        ]);
+        Some(TreeItem::new(inactive_id(), line, items).expect("unique tool ids"))
+    }
+
+    fn items_by_tool(&self, vis: &[Vec<bool>]) -> Vec<TreeItem<'static, String>> {
+        let mut out: Vec<_> = self
+            .inv
+            .tools
+            .iter()
+            .enumerate()
+            .filter(|(t, _)| self.active(*t))
+            .filter_map(|(t, tool)| self.tool_item(t, tool, vis))
+            .collect();
+        out.extend(self.inactive_group(vis));
         out
     }
 
@@ -296,6 +393,9 @@ impl App {
         for scope in SCOPES {
             let mut tools = Vec::new();
             for (t, tool) in self.inv.tools.iter().enumerate() {
+                if !self.active(t) {
+                    continue;
+                }
                 let leaves: Vec<_> = tool
                     .entries
                     .iter()
@@ -307,7 +407,7 @@ impl App {
                     continue;
                 }
                 tools.push(
-                    TreeItem::new(tool_in_scope_id(scope, tool), tool_line(tool), leaves)
+                    TreeItem::new(tool_in_scope_id(scope, tool), tool_line(tool, true), leaves)
                         .expect("unique entry ids"),
                 );
             }
@@ -320,6 +420,7 @@ impl App {
                     .expect("unique tool ids"),
             );
         }
+        out.extend(self.inactive_group(vis));
         out
     }
 
@@ -353,6 +454,9 @@ impl App {
 
 // ───────────────────────────────────────────────────────── identifiers
 
+fn inactive_id() -> String {
+    "x:not-detected".to_string()
+}
 fn tool_id(tool: &ToolReport) -> String {
     format!("t:{}", tool.id)
 }
@@ -386,8 +490,23 @@ pub fn scope_color(scope: Scope) -> Color {
     }
 }
 
-fn tool_line(tool: &ToolReport) -> Line<'static> {
+fn tool_line(tool: &ToolReport, active: bool) -> Line<'static> {
     let n = tool.present().count();
+    if !active {
+        let why = match tool.install {
+            Install::NotInstalled { .. } => "not installed",
+            _ => "nothing loaded here",
+        };
+        let files = if n > 0 {
+            format!(" · {n} file{}", if n == 1 { "" } else { "s" })
+        } else {
+            String::new()
+        };
+        return Line::from(vec![
+            Span::styled(tool.name.clone(), Style::new().dark_gray()),
+            Span::styled(format!("  {why}{files}"), Style::new().dark_gray().italic()),
+        ]);
+    }
     Line::from(vec![
         Span::styled(tool.name.clone(), Style::new().cyan().bold()),
         Span::styled(

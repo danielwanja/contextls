@@ -24,8 +24,28 @@ pub struct ToolDef {
     pub notes: Vec<String>,
     /// Per-user config directory; `{config_dir}` in paths expands to it.
     pub config_dir: Option<ConfigDir>,
+    /// How to tell the tool is installed here. Absent = unknown.
+    pub detect: Option<Detect>,
     #[serde(rename = "source", default)]
     pub sources: Vec<SourceDef>,
+}
+
+/// Any one match means "installed". Paths support `~`, `$VAR`, `{config_dir}`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Detect {
+    /// Directories or files whose existence proves installation.
+    #[serde(default)]
+    pub dirs: Vec<String>,
+    /// Executables looked up on PATH.
+    #[serde(default)]
+    pub bins: Vec<String>,
+    /// macOS app bundles checked in /Applications and ~/Applications.
+    #[serde(default)]
+    pub apps: Vec<String>,
+    /// Globs (files or directories), e.g. an editor extension folder.
+    #[serde(default)]
+    pub globs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

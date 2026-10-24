@@ -192,11 +192,18 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
         Line::from(spans)
+    } else if let Some(tool) = app.selected_tool() {
+        Line::from(vec![
+            Span::styled(format!(" {} ", tool.name), Style::new().cyan()),
+            Span::styled(
+                format!("· {}", tool.install.summary()),
+                Style::new().dark_gray(),
+            ),
+        ])
     } else {
         Line::from("")
     };
-    const FULL_HINTS: &str =
-        "j/k move · / filter · i details · e edit · g group · m missing · ? help · q quit ";
+    const FULL_HINTS: &str = "j/k move · / filter · i details · e edit · g group · m missing · a all tools · ? help · q quit ";
     const SHORT_HINTS: &str = "? help · q quit ";
     // Keep room for the file info; shrink the hints before clipping it.
     let hints = if left.width() + FULL_HINTS.len() + 2 <= area.width as usize {
@@ -242,6 +249,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         ("e", "open in $VISUAL / $EDITOR"),
         ("g", "group by tool ⇄ by scope"),
         ("m", "show / hide expected-but-missing locations"),
+        ("a", "show not-detected tools as regular tools"),
         ("r", "rescan"),
         ("q, Esc", "quit (Esc first clears filter / ad-hoc preview)"),
     ];

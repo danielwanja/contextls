@@ -23,6 +23,8 @@ pub struct ToolReport {
     pub homepage: String,
     /// Short caveats shown in the details pane (e.g. "User rules live in the settings DB").
     pub notes: Vec<String>,
+    /// Whether the tool seems to be installed on this machine.
+    pub install: Install,
     /// In load order.
     pub entries: Vec<Entry>,
 }
@@ -34,6 +36,42 @@ impl ToolReport {
 
     pub fn total_tokens(&self) -> u64 {
         self.present().map(|e| e.est_tokens).sum()
+    }
+
+    /// Shown as a regular tool: installed, or of unknown state but loading something here.
+    /// Everything else is collapsed under "Not detected".
+    pub fn active(&self) -> bool {
+        match &self.install {
+            Install::Installed { .. } => true,
+            Install::NotInstalled { .. } => false,
+            Install::Unknown => self.present().next().is_some(),
+        }
+    }
+}
+
+/// Evidence-based install state, from the tool's `detect` rules.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum Install {
+    Installed {
+        evidence: String,
+    },
+    NotInstalled {
+        looked_for: Vec<String>,
+    },
+    /// The tool has no detection rules.
+    Unknown,
+}
+
+impl Install {
+    pub fn summary(&self) -> String {
+        match self {
+            Install::Installed { evidence } => format!("installed · {evidence}"),
+            Install::NotInstalled { looked_for } => {
+                format!("not detected · looked for {}", looked_for.join(", "))
+            }
+            Install::Unknown => "install state unknown".into(),
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use crate::model::{Entry, Inventory};
 
 use super::{fmt_age, fmt_size, fmt_tokens};
 
-pub fn render(inv: &Inventory, show_missing: bool) -> String {
+pub fn render(inv: &Inventory, show_missing: bool, all_tools: bool) -> String {
     let mut out = String::new();
     out.push_str(&format!("{}\n", inv.root.display()));
     if let Some(g) = &inv.git_root
@@ -14,7 +14,12 @@ pub fn render(inv: &Inventory, show_missing: bool) -> String {
     {
         out.push_str(&format!("git root: {}\n", g.display()));
     }
+    let mut not_detected = Vec::new();
     for tool in &inv.tools {
+        if !all_tools && !tool.active() {
+            not_detected.push(tool.name.as_str());
+            continue;
+        }
         let present = tool.present().count();
         let missing = tool.entries.len() - present;
         out.push_str(&format!(
@@ -69,6 +74,13 @@ pub fn render(inv: &Inventory, show_missing: bool) -> String {
         }
         out.push_str(&table.to_string());
         out.push('\n');
+    }
+    if !not_detected.is_empty() {
+        out.push_str(&format!(
+            "\nNot detected on this machine ({}): {}  (--all-tools to include)\n",
+            not_detected.len(),
+            not_detected.join(", ")
+        ));
     }
     out
 }

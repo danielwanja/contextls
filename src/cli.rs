@@ -35,6 +35,11 @@ pub struct Args {
     #[arg(short = 'a', long)]
     pub all: bool,
 
+    /// Show tools not detected on this machine like any other, instead of
+    /// collapsing them under "Not detected"
+    #[arg(long)]
+    pub all_tools: bool,
+
     /// Skip git lookups (tracked / ignored status, git root detection)
     #[arg(long)]
     pub no_git: bool,

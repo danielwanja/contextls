@@ -39,6 +39,7 @@ contextls --plain         # table (also used automatically when piped)
 contextls --json | jq     # machine-readable
 contextls --tool claude-code --tool cursor   # only some tools
 contextls --all           # include expected-but-missing locations
+contextls --all-tools     # don't collapse tools that aren't installed here
 contextls --list-tools
 ```
 
@@ -54,6 +55,7 @@ contextls --list-tools
 | `e` | open in `$VISUAL` / `$EDITOR` |
 | `g` | group by tool ⇄ by scope |
 | `m` | show expected-but-missing locations |
+| `a` | expand the *Not detected* group into regular tools |
 | `r` | rescan |
 | `?` `q` | help · quit |
 
@@ -68,6 +70,12 @@ tools are marked `shared`. A cheap check warns when a file looks like it
 contains a secret, since these files end up in prompts.
 
 ## Tools
+
+Only tools that look installed on this machine are shown in full — detected by
+a config directory, a binary on `PATH`, a macOS app bundle, or an editor
+extension folder. The rest sit under a collapsed **Not detected** group (`a`
+expands it, `--all-tools` on the command line). A tool with no detection rule
+is collapsed only when it loads nothing for the folder.
 
 Definitions live in [`tools/definitions.toml`](tools/definitions.toml); most
 tools need no Rust at all. Behaviour the data file can't express (reading the

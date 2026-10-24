@@ -19,6 +19,7 @@ notes = [
   "@imports resolve relative to the importing file, max 4 hops, skipped inside code fences.",
 ]
 config_dir = { default = "~/.claude", env = "CLAUDE_CONFIG_DIR" }
+detect = { dirs = ["{config_dir}"], bins = ["claude"] }
 
 [[tool.source]]
 scope = "managed"
@@ -73,6 +74,7 @@ notes = [
   "@imports: @./x.md, @../x.md, @/abs — max depth 5, ignored inside code blocks.",
 ]
 config_dir = { default = "~/.gemini", env = "GEMINI_CLI_HOME" }
+detect = { dirs = ["{config_dir}"], bins = ["gemini", "agy"] }
 
 [[tool.source]]
 scope = "user"
@@ -103,6 +105,7 @@ notes = [
   "Combined project docs capped at project_doc_max_bytes (32 KiB default).",
 ]
 config_dir = { default = "~/.codex", env = "CODEX_HOME" }
+detect = { dirs = ["{config_dir}"], bins = ["codex"] }
 
 [[tool.source]]
 scope = "user"
@@ -122,6 +125,7 @@ one_per_dir = true
 id = "cursor"
 name = "Cursor"
 homepage = "https://cursor.com/docs/context/rules"
+detect = { dirs = ["~/.cursor"], bins = ["cursor"], apps = ["Cursor.app"] }
 notes = [
   "User Rules live in Cursor Settings (not a file) and Team Rules in the dashboard — not shown here.",
   ".cursor/rules only reads .mdc files; frontmatter alwaysApply / globs / description set the activation.",
@@ -172,6 +176,7 @@ notes = [
   "CLAUDE.md / GEMINI.md are read only as a single file at the repository root.",
 ]
 config_dir = { default = "~/.copilot" }
+detect = { dirs = ["{config_dir}"], bins = ["copilot"], globs = ["~/.vscode/extensions/github.copilot-*", "~/.vscode-insiders/extensions/github.copilot-*"] }
 
 [[tool.source]]
 scope = "user"
@@ -232,6 +237,7 @@ notes = [
   "AGENTS.md at the root is always on; in subdirectories it is scoped to that directory.",
 ]
 config_dir = { default = "~/.codeium/windsurf" }
+detect = { dirs = ["{config_dir}", "~/.devin"], bins = ["windsurf", "devin"], apps = ["Windsurf.app", "Devin.app"] }
 
 [[tool.source]]
 scope = "managed"
@@ -299,6 +305,7 @@ notes = [
   "Multi-root workspaces: only the first folder is read.",
 ]
 config_dir = { default = "~/.cline" }
+detect = { dirs = ["{config_dir}", "~/Documents/Cline"], bins = ["cline"], globs = ["~/.vscode/extensions/saoudrizwan.claude-dev-*"] }
 
 [[tool.source]]
 scope = "user"
@@ -369,6 +376,7 @@ notes = [
   "Legacy .roorules / .roorules-<mode> files are used only when the rules directory is missing or empty.",
 ]
 config_dir = { default = "~/.roo" }
+detect = { dirs = ["{config_dir}"], globs = ["~/.vscode/extensions/rooveterinaryinc.roo-cline-*"] }
 
 [[tool.source]]
 scope = "user"
@@ -410,6 +418,7 @@ legacy = true
 id = "aider"
 name = "Aider"
 homepage = "https://aider.chat/docs/usage/conventions.html"
+detect = { dirs = ["~/.aider", "~/.aider.conf.yml"], bins = ["aider"] }
 notes = [
   "Nothing is loaded automatically: files come from `read:` in .aider.conf.yml (home → git root → cwd, later wins) or --read.",
   "CONVENTIONS.md is the documented convention, but only when listed under read:.",
@@ -431,6 +440,7 @@ label = "config"
 id = "zed"
 name = "Zed"
 homepage = "https://zed.dev/docs/ai/instructions.md"
+detect = { dirs = ["~/.config/zed"], bins = ["zed"], apps = ["Zed.app", "Zed Preview.app"] }
 notes = [
   "Project instructions: the first existing file wins, in this order: .rules, .cursorrules, .windsurfrules, .clinerules, .github/copilot-instructions.md, AGENT.md, AGENTS.md, CLAUDE.md, GEMINI.md.",
   "Project instructions override the personal ~/.config/zed/AGENTS.md.",
@@ -467,6 +477,7 @@ notes = [
   "AGENTS.md is read from ~/.kiro/steering/, the workspace root and subdirectories.",
 ]
 config_dir = { default = "~/.kiro" }
+detect = { dirs = ["{config_dir}"], bins = ["kiro", "kiro-cli"], apps = ["Kiro.app"] }
 
 [[tool.source]]
 scope = "user"
@@ -506,6 +517,7 @@ notes = [
   "Project guidelines win over ~/.junie/AGENTS.md; identical content is deduplicated.",
 ]
 config_dir = { default = "~/.junie" }
+detect = { dirs = ["{config_dir}"], globs = ["~/Library/Application Support/JetBrains/*/plugins/*unie*"] }
 
 [[tool.source]]
 scope = "user"
@@ -548,6 +560,7 @@ legacy = true
 id = "amp"
 name = "Amp"
 homepage = "https://ampcode.com/docs/customize/agents-md"
+detect = { dirs = ["~/.config/amp", "~/.local/share/amp"], bins = ["amp"] }
 notes = [
   "AGENTS.md from the folder up to $HOME, per directory falling back to AGENT.md then CLAUDE.md; subtree files load when a file there is read.",
   "@path mentions (relative to the file, @~/ and globs) pull other files in.",
@@ -588,6 +601,7 @@ import_syntax = "at_path"
 id = "opencode"
 name = "OpenCode"
 homepage = "https://opencode.ai/docs/rules/"
+detect = { dirs = ["~/.config/opencode", "~/.local/share/opencode"], bins = ["opencode"] }
 notes = [
   "Walks up from the folder looking for AGENTS.md, then CLAUDE.md; global ~/.config/opencode/AGENTS.md with ~/.claude/CLAUDE.md as fallback.",
   "The `instructions` array in opencode.json can add more files or URLs (not shown).",

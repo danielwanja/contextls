@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use contextls::cli::Grouping;
-use contextls::model::{Entry, GitStatus, Import, Inventory, LoadMode, Scope, ToolReport};
+use contextls::model::{Entry, GitStatus, Import, Install, Inventory, LoadMode, Scope, ToolReport};
 use contextls::scan::ScanOptions;
 use contextls::tools::registry;
 use contextls::tui::{App, ui};
@@ -86,6 +86,9 @@ fn inventory() -> Inventory {
                 name: "Claude Code".into(),
                 homepage: "https://example.invalid".into(),
                 notes: vec!["note".into()],
+                install: Install::Installed {
+                    evidence: "found ~/.claude".into(),
+                },
                 entries: vec![
                     entry(
                         "claude-code",
@@ -105,6 +108,8 @@ fn inventory() -> Inventory {
                 name: "Cursor".into(),
                 homepage: "https://example.invalid".into(),
                 notes: vec![],
+                // No detection rule, but it loads a file here: stays a regular tool.
+                install: Install::Unknown,
                 entries: vec![entry(
                     "cursor",
                     Scope::Project,
@@ -112,6 +117,23 @@ fn inventory() -> Inventory {
                     "/repo/CLAUDE.md",
                     "./CLAUDE.md",
                     REPO_MD,
+                )],
+            },
+            ToolReport {
+                id: "kiro".into(),
+                name: "Kiro".into(),
+                homepage: "https://example.invalid".into(),
+                notes: vec![],
+                install: Install::NotInstalled {
+                    looked_for: vec!["~/.kiro".into(), "`kiro` on PATH".into()],
+                },
+                entries: vec![entry(
+                    "kiro",
+                    Scope::Project,
+                    1,
+                    "/repo/AGENTS.md",
+                    "./AGENTS.md",
+                    "agents\n",
                 )],
             },
         ],
@@ -126,6 +148,7 @@ fn app(grouping: Grouping) -> App {
         ScanOptions::default(),
         inventory(),
         grouping,
+        false,
     );
     app.preload("/repo/CLAUDE.md".into(), REPO_MD.into());
     app.preload("/repo/CLAUDE.local.md".into(), "my notes\n".into());
@@ -172,6 +195,22 @@ fn missing_entries_hidden_until_toggled() {
     let term = render(&mut app, 80, 24);
     let shown = format!("{}", term.backend());
     assert!(shown.contains("~/.claude/CLAUDE.md"));
+}
+
+#[test]
+fn not_detected_tools_collapse_until_toggled() {
+    let mut app = app(Grouping::Tool);
+    let shown = format!("{}", render(&mut app, 80, 24).backend());
+    assert!(shown.contains("Not detected"));
+    assert!(
+        !shown.contains("Kiro"),
+        "collapsed group must hide its tools"
+    );
+
+    app.toggle_all_tools();
+    let shown = format!("{}", render(&mut app, 80, 24).backend());
+    assert!(shown.contains("Kiro"));
+    assert!(!shown.contains("Not detected"));
 }
 
 #[test]
