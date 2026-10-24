@@ -25,10 +25,14 @@ Every tool has its own filenames, lookup rules, import syntax and precedence.
 ## Install
 
 ```bash
-cargo install --path .
+cargo install --git https://github.com/danielwanja/contextls
 ```
 
-Requires Rust 1.88+.
+Requires Rust 1.88+. From a checkout, `cargo install --path .`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Use
 

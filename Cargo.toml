@@ -6,6 +6,8 @@ rust-version = "1.88"
 description = "List the context / memory / instruction files each AI coding tool loads for a folder"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/danielwanja/contextls"
+homepage = "https://github.com/danielwanja/contextls"
 keywords = ["cli", "tui", "ai", "agents", "context"]
 categories = ["command-line-utilities", "development-tools"]
 
