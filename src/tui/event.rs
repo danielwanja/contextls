@@ -1,5 +1,7 @@
 //! Event loop and key handling.
 
+use std::time::Duration;
+
 use anyhow::Result;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -11,10 +13,20 @@ const PAGE: u16 = 10;
 
 pub fn run_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
+        app.poll_summary();
         app.ensure_content();
         terminal.draw(|f| ui::draw(f, app))?;
         if app.quit {
             return Ok(());
+        }
+        // Redraw often while a summary is running (spinner, result pickup).
+        let wait = if app.job_active() {
+            Duration::from_millis(120)
+        } else {
+            Duration::from_secs(60)
+        };
+        if !event::poll(wait)? {
+            continue;
         }
         if let Event::Key(key) = event::read()?
             && key.is_press()
@@ -77,6 +89,28 @@ fn handle_key(terminal: &mut DefaultTerminal, app: &mut App, key: KeyEvent) -> R
             );
         }
         KeyCode::Char('r') => app.rescan(),
+        KeyCode::Char('o') => {
+            let target = app
+                .preview_path()
+                .or_else(|| app.selected_entry().map(|(_, e)| e.path.clone()));
+            app.status = Some(match target {
+                Some(p) => match editor::reveal(&p) {
+                    Ok(()) => format!("revealed {}", p.display()),
+                    Err(e) => format!("could not reveal: {e}"),
+                },
+                None => "select a file first".into(),
+            });
+        }
+        KeyCode::Char('s') => app.summarize(false),
+        KeyCode::Char('S') => app.summarize(true),
+        KeyCode::Char('p') => {
+            if app.providers.is_empty() {
+                app.status = Some("no summarizer CLI found on PATH".into());
+            } else {
+                app.pick_cursor = app.provider;
+                app.overlay = Overlay::Pick;
+            }
+        }
         KeyCode::Char('e') => {
             if let Some(path) = app.preview_path() {
                 editor::open(terminal, &path)?;
@@ -127,6 +161,7 @@ fn handle_key(terminal: &mut DefaultTerminal, app: &mut App, key: KeyEvent) -> R
 fn on_move(app: &mut App) {
     app.preview_scroll = 0;
     app.adhoc = None;
+    app.show_summary = false;
 }
 
 fn scroll(app: &mut App, delta: i32) {
@@ -155,6 +190,27 @@ fn filter_key(app: &mut App, key: KeyEvent) {
 }
 
 fn overlay_key(app: &mut App, key: KeyEvent) {
+    if app.overlay == Overlay::Pick {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') => app.overlay = Overlay::None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.pick_cursor = (app.pick_cursor + 1).min(app.providers.len().saturating_sub(1));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.pick_cursor = app.pick_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                app.choose_provider(app.pick_cursor);
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char(c @ '1'..='9') => {
+                app.choose_provider(c.to_digit(10).unwrap() as usize - 1);
+                app.overlay = Overlay::None;
+            }
+            _ => {}
+        }
+        return;
+    }
     match key.code {
         KeyCode::Esc
         | KeyCode::Char('q')

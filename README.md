@@ -57,6 +57,9 @@ contextls --list-tools
 | `/` | fuzzy filter (`Enter` keeps it, `Esc` clears) |
 | `i` | details: frontmatter, imports (`1`–`9` to follow), warnings, tool notes |
 | `e` | open in `$VISUAL` / `$EDITOR` |
+| `o` | reveal in Finder (or the system file manager) |
+| `s` / `S` | summarize this file with an installed AI CLI (`S` redoes; `s` again shows the file) |
+| `p` | pick which CLI summarizes |
 | `g` | group by tool ⇄ by scope |
 | `m` | show expected-but-missing locations |
 | `a` | expand the *Not detected* group into regular tools |
@@ -72,6 +75,19 @@ always, on demand (subdirectory files), when a glob matches, manually, or as a
 fallback. `@path` imports are resolved and checked; files loaded by several
 tools are marked `shared`. A cheap check warns when a file looks like it
 contains a secret, since these files end up in prompts.
+
+## Summaries
+
+Some memory files get long. Press `s` on one and contextls asks an AI CLI you
+already have installed and are logged into — no API keys involved. The first
+installed of **claude → codex → grok → gemini → copilot → amp → opencode** is
+the default; `p` (or `--summarizer <id>`) picks another, and
+`--list-summarizers` shows what's available.
+
+Nothing happens until you press `s`, and only that one file is sent. The CLI
+runs with its tools disabled or read-only, in an empty temporary directory,
+with a two-minute timeout; the summary is kept in memory for the session only.
+Expect 5–20 s and a dent in that tool's quota.
 
 ## Tools
 
@@ -102,6 +118,7 @@ tool's own settings, auto-memory paths, first-match ladders) lives in
 | JetBrains Junie | `~/.junie/AGENTS.md` | `.junie/AGENTS.md` or `AGENTS.md`, playbook, rules, legacy guidelines |
 | Amp | `~/.config/amp/AGENTS.md` | `AGENTS.md` up to `$HOME`, `AGENT.md` / `CLAUDE.md` fallback |
 | OpenCode | `~/.config/opencode/AGENTS.md` (`~/.claude/CLAUDE.md` fallback) | `AGENTS.md` then `CLAUDE.md` up the tree |
+| Grok Build (xAI) | `~/.grok/AGENTS.md`, `~/.grok/rules/`, memory | `AGENTS.md` / `CLAUDE.md` root → cwd, `.grok/rules/` |
 
 Conventions were verified against each tool's docs on 2026-10-24; when a tool
 changes its rules, edit the TOML. Adding a tool is usually a `[[tool]]` block
@@ -115,7 +132,9 @@ listed — the tool's notes (`i`) say so where it matters.
 
 ## Principles
 
-Read-only. Offline. Never follows instructions found in the files it reads.
+Read-only. Offline — except the file you explicitly summarize with `s`, which
+goes to the CLI you chose. Never follows instructions found in the files it
+reads.
 
 ## Develop
 

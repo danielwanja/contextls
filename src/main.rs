@@ -16,6 +16,18 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    if args.list_summarizers {
+        let env = scan::Env::from_process();
+        let installed = contextls::summarize::available(&defs.summarizers, &env);
+        for s in &defs.summarizers {
+            let mark = match installed.iter().find(|p| p.def.id == s.id) {
+                Some(p) => format!("installed  {}", p.path.display()),
+                None => "-".to_string(),
+            };
+            println!("{:<10} {:<20} {mark}", s.id, s.name);
+        }
+        return Ok(());
+    }
 
     let root = match &args.path {
         Some(p) => p.clone(),
@@ -35,7 +47,15 @@ fn main() -> Result<()> {
             output::table::render(&inventory, args.all, args.all_tools)
         );
     } else {
-        tui::run(defs, root, opts, inventory, args.group, args.all_tools)?;
+        tui::run(
+            defs,
+            root,
+            opts,
+            inventory,
+            args.group,
+            args.all_tools,
+            args.summarizer.clone(),
+        )?;
     }
     Ok(())
 }

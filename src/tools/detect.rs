@@ -59,7 +59,8 @@ pub fn detect(def: &ToolDef, ctx: &Ctx) -> Install {
     Install::NotInstalled { looked_for }
 }
 
-fn which(bin: &str, env: &Env) -> Option<PathBuf> {
+/// First executable named `bin` on the environment's PATH.
+pub fn which(bin: &str, env: &Env) -> Option<PathBuf> {
     let path = env.get("PATH")?;
     path.split(':')
         .filter(|d| !d.is_empty())

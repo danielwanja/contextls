@@ -24,6 +24,7 @@ pub fn run(
     inv: Inventory,
     grouping: Grouping,
     all_tools: bool,
+    summarizer: Option<String>,
 ) -> Result<()> {
     // Leave the terminal usable if we panic.
     let hook = std::panic::take_hook();
@@ -33,7 +34,7 @@ pub fn run(
     }));
 
     let mut terminal = ratatui::init();
-    let mut app = App::new(defs, root, opts, inv, grouping, all_tools);
+    let mut app = App::new(defs, root, opts, inv, grouping, all_tools, summarizer);
     let result = event::run_loop(&mut terminal, &mut app);
     ratatui::restore();
     result

@@ -3,6 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -14,7 +16,8 @@ use tui_tree_widget::{TreeItem, TreeState};
 use crate::cli::Grouping;
 use crate::model::{Entry, Install, Inventory, Scope, ToolReport};
 use crate::output::{fmt_age_short, fmt_tokens};
-use crate::scan::{ScanOptions, scan_with};
+use crate::scan::{Env, ScanOptions, scan_with};
+use crate::summarize::{self, Failure, Provider, Summary};
 use crate::tools::schema::Definitions;
 
 pub const SCOPES: [Scope; 5] = [
@@ -36,6 +39,16 @@ pub enum Overlay {
     None,
     Help,
     Details,
+    /// Choose the summarizer CLI.
+    Pick,
+}
+
+/// A summary being produced on a worker thread.
+pub struct SummaryJob {
+    pub path: PathBuf,
+    pub provider: String,
+    pub started: Instant,
+    rx: mpsc::Receiver<Result<Summary, Failure>>,
 }
 
 pub struct App {
@@ -59,6 +72,17 @@ pub struct App {
     pub adhoc: Option<PathBuf>,
     pub status: Option<String>,
     pub quit: bool,
+    /// Installed summarizer CLIs, in preference order; `provider` indexes it.
+    pub providers: Vec<Provider>,
+    pub provider: usize,
+    /// Cursor in the provider picker overlay.
+    pub pick_cursor: usize,
+    /// Show the summary instead of the file in the preview pane.
+    pub show_summary: bool,
+    /// Last summary failure, shown in the preview until the next attempt.
+    pub summary_error: Option<Failure>,
+    summaries: HashMap<PathBuf, Summary>,
+    job: Option<SummaryJob>,
     matcher: Matcher,
     contents: HashMap<PathBuf, Result<String, String>>,
 }
@@ -71,7 +95,20 @@ impl App {
         inv: Inventory,
         grouping: Grouping,
         all_tools: bool,
+        summarizer: Option<String>,
     ) -> Self {
+        let providers = summarize::available(&defs.summarizers, &Env::from_process());
+        let mut status = None;
+        let provider = match &summarizer {
+            Some(id) => match providers.iter().position(|p| &p.def.id == id) {
+                Some(i) => i,
+                None => {
+                    status = Some(format!("summarizer `{id}` is not installed; using default"));
+                    0
+                }
+            },
+            None => 0,
+        };
         let mut app = App {
             defs,
             root,
@@ -87,14 +124,153 @@ impl App {
             filter: String::new(),
             filtering: false,
             adhoc: None,
-            status: None,
+            status,
             quit: false,
+            providers,
+            provider,
+            pick_cursor: provider,
+            show_summary: false,
+            summary_error: None,
+            summaries: HashMap::new(),
+            job: None,
             matcher: Matcher::new(Config::DEFAULT),
             contents: HashMap::new(),
         };
         app.open_all();
         app.select_first_entry();
         app
+    }
+
+    // ──────────────────────────────────────────────────────── summaries
+
+    pub fn current_provider(&self) -> Option<&Provider> {
+        self.providers.get(self.provider)
+    }
+
+    /// Replace the detected providers (tests use a fake CLI script).
+    pub fn set_providers(&mut self, providers: Vec<Provider>) {
+        self.providers = providers;
+        self.provider = 0;
+        self.pick_cursor = 0;
+    }
+
+    /// `s`: summarize the previewed file, or toggle an existing summary.
+    /// `S` (`force`) always re-runs the provider.
+    pub fn summarize(&mut self, force: bool) {
+        let Some(path) = self.preview_path() else {
+            self.status = Some("select a file to summarize".into());
+            return;
+        };
+        if let Some(job) = &self.job {
+            self.status = Some(format!(
+                "already summarizing {} with {}…",
+                job.path.file_name().unwrap_or_default().to_string_lossy(),
+                job.provider
+            ));
+            return;
+        }
+        if !force && self.summaries.contains_key(&path) {
+            self.show_summary = !self.show_summary;
+            self.preview_scroll = 0;
+            return;
+        }
+        let Some(provider) = self.current_provider().cloned() else {
+            self.status = Some(
+                "no summarizer CLI found (claude, codex, grok, gemini, copilot, amp, opencode)"
+                    .into(),
+            );
+            return;
+        };
+        let content = match self.content(&path) {
+            Some(Ok(c)) => c.clone(),
+            _ => {
+                self.status = Some("nothing readable to summarize".into());
+                return;
+            }
+        };
+        let (tx, rx) = mpsc::channel();
+        let job_path = path.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(summarize::run(&provider, &job_path, &content));
+        });
+        self.summary_error = None;
+        self.show_summary = true;
+        self.preview_scroll = 0;
+        self.job = Some(SummaryJob {
+            path,
+            provider: self
+                .current_provider()
+                .map(|p| p.def.name.clone())
+                .unwrap_or_default(),
+            started: Instant::now(),
+            rx,
+        });
+    }
+
+    /// Collect a finished summary, if any. Call once per frame.
+    pub fn poll_summary(&mut self) {
+        let Some(job) = &self.job else { return };
+        match job.rx.try_recv() {
+            Ok(Ok(summary)) => {
+                self.status = Some(format!(
+                    "summarized by {} in {}s",
+                    summary.provider,
+                    summary.elapsed.as_secs()
+                ));
+                let path = job.path.clone();
+                self.summaries.insert(path, summary);
+                self.job = None;
+            }
+            Ok(Err(e)) => {
+                self.status = Some(if e.needs_login {
+                    format!(
+                        "{} is not logged in — {}",
+                        e.provider,
+                        e.login
+                            .as_deref()
+                            .unwrap_or("log in to that CLI, then press S")
+                    )
+                } else {
+                    format!(
+                        "summary failed: {}",
+                        e.message.lines().next().unwrap_or("unknown error")
+                    )
+                });
+                self.summary_error = Some(e);
+                self.job = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.status = Some("summarizer thread died".into());
+                self.job = None;
+            }
+        }
+    }
+
+    /// The running job for the previewed file: (provider name, elapsed).
+    pub fn summarizing(&self) -> Option<(&str, Duration)> {
+        let job = self.job.as_ref()?;
+        (Some(&job.path) == self.preview_path().as_ref())
+            .then(|| (job.provider.as_str(), job.started.elapsed()))
+    }
+
+    pub fn job_active(&self) -> bool {
+        self.job.is_some()
+    }
+
+    pub fn summary_for(&self, path: &Path) -> Option<&Summary> {
+        self.summaries.get(path)
+    }
+
+    pub fn choose_provider(&mut self, i: usize) {
+        if i < self.providers.len() {
+            self.provider = i;
+            self.pick_cursor = i;
+            self.status = Some(format!(
+                "summaries by {} (press s)",
+                self.providers[i].def.name
+            ));
+        }
     }
 
     /// Seed the preview cache (used by tests, which have no files on disk).

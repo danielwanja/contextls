@@ -103,7 +103,7 @@ fn entry<'a>(tool: &'a Value, suffix: &str) -> &'a Value {
 }
 
 #[test]
-fn all_fourteen_tools_are_listed() {
+fn all_tools_are_listed() {
     let out = Command::cargo_bin("contextls")
         .unwrap()
         .arg("--list-tools")
@@ -128,7 +128,7 @@ fn all_fourteen_tools_are_listed() {
     ] {
         assert!(text.contains(id), "missing {id}");
     }
-    assert_eq!(text.lines().count(), 14);
+    assert_eq!(text.lines().count(), 15);
 }
 
 #[test]
@@ -422,4 +422,31 @@ fn opencode() {
         entry(&t, "~/.claude/CLAUDE.md".trim_start_matches('~'))["load_mode"]["kind"],
         "fallback"
     );
+}
+
+#[test]
+fn grok() {
+    let w = World::new();
+    w.home(".grok/AGENTS.md", "g\n")
+        .home(".grok/rules/r.md", "r\n")
+        .home(".grok/memory/MEMORY.md", "m\n")
+        .repo("AGENTS.md", "a\n")
+        .repo("CLAUDE.md", "c\n")
+        .repo(".grok/rules/p.md", "p\n")
+        .repo("pkg/CLAUDE.md", "pc\n");
+    let t = w.tool("grok", Some(&w.repo.join("pkg")));
+    assert_eq!(
+        w.present(&t),
+        vec![
+            "~/.grok/AGENTS.md",
+            "~/.grok/rules/r.md",
+            "~/.grok/memory/MEMORY.md",
+            "~/work/repo/AGENTS.md",
+            "~/work/repo/.grok/rules/p.md",
+            "~/work/repo/pkg/CLAUDE.md",
+        ]
+    );
+    assert_eq!(entry(&t, "MEMORY.md")["scope"], "auto_memory");
+    // One file per directory: CLAUDE.md is skipped where AGENTS.md exists.
+    assert!(!w.present(&t).contains(&"~/work/repo/CLAUDE.md".to_string()));
 }

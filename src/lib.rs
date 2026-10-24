@@ -7,5 +7,6 @@ pub mod git;
 pub mod model;
 pub mod output;
 pub mod scan;
+pub mod summarize;
 pub mod tools;
 pub mod tui;

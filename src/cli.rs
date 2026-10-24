@@ -47,6 +47,15 @@ pub struct Args {
     /// Group the TUI tree by scope first instead of by tool
     #[arg(long, value_enum, default_value_t = Grouping::Tool)]
     pub group: Grouping,
+
+    /// AI CLI to use for on-demand summaries (`s` in the TUI); defaults to the
+    /// first installed of claude, codex, grok, … (see --list-summarizers)
+    #[arg(long, value_name = "ID")]
+    pub summarizer: Option<String>,
+
+    /// List the summarizer CLIs contextls knows, marking installed ones, and exit
+    #[arg(long)]
+    pub list_summarizers: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

@@ -149,6 +149,7 @@ fn app(grouping: Grouping) -> App {
         inventory(),
         grouping,
         false,
+        None,
     );
     app.preload("/repo/CLAUDE.md".into(), REPO_MD.into());
     app.preload("/repo/CLAUDE.local.md".into(), "my notes\n".into());
@@ -221,4 +222,69 @@ fn filter_narrows_tree() {
     let shown = format!("{}", term.backend());
     assert!(shown.contains("CLAUDE.local.md"));
     assert!(!shown.contains("rules/db.md"));
+}
+
+/// Press `s` with a fake provider CLI and check the summary replaces the preview.
+#[test]
+#[cfg(unix)]
+fn summarize_flow_with_fake_provider() {
+    use contextls::summarize::{ContentMode, Provider, SummarizerDef};
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("fake-ai");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nsleep 0.2\necho \"## Summary\"\necho \"- rules about tabs ($(wc -l < /dev/stdin | tr -d ' ') lines)\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut app = app(Grouping::Tool);
+    app.set_providers(vec![Provider {
+        def: SummarizerDef {
+            id: "fake".into(),
+            name: "Fake AI".into(),
+            bin: "fake-ai".into(),
+            args: vec!["-p".into(), "{prompt}".into()],
+            content: ContentMode::Stdin,
+            login: None,
+        },
+        path: script,
+    }]);
+
+    app.summarize(false);
+    assert!(app.job_active());
+    let shown = format!("{}", render(&mut app, 100, 24).backend());
+    assert!(
+        shown.contains("summarizing ./CLAUDE.md with Fake AI"),
+        "{shown}"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.job_active() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        app.poll_summary();
+    }
+    assert!(!app.job_active(), "provider never finished");
+    let shown = format!("{}", render(&mut app, 100, 24).backend());
+    assert!(
+        shown.contains("summary · ./CLAUDE.md · by Fake AI"),
+        "{shown}"
+    );
+    assert!(shown.contains("rules about tabs (6 lines)"), "{shown}");
+    assert!(
+        app.status
+            .as_deref()
+            .unwrap()
+            .starts_with("summarized by Fake AI")
+    );
+
+    // `s` again toggles back to the file, and once more to the cached summary.
+    app.summarize(false);
+    let shown = format!("{}", render(&mut app, 100, 24).backend());
+    assert!(shown.contains("# Repo rules"), "{shown}");
+    app.summarize(false);
+    let shown = format!("{}", render(&mut app, 100, 24).backend());
+    assert!(shown.contains("by Fake AI"), "{shown}");
 }

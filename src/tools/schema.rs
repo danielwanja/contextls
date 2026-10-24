@@ -12,6 +12,9 @@ use crate::model::Scope;
 pub struct Definitions {
     #[serde(rename = "tool")]
     pub tools: Vec<ToolDef>,
+    /// AI CLIs usable for on-demand summaries, in preference order.
+    #[serde(rename = "summarizer", default)]
+    pub summarizers: Vec<crate::summarize::SummarizerDef>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

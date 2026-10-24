@@ -622,3 +622,108 @@ scope = "project"
 walk = "ancestors_to_git_root"
 candidates = ["AGENTS.md", "CLAUDE.md"]
 one_per_dir = true
+
+# ──────────────────────────────────────────────────────────── Grok Build (xAI)
+[[tool]]
+id = "grok"
+name = "Grok Build"
+homepage = "https://github.com/xai-org/grok-build/tree/main/crates/codegen/xai-grok-pager/docs/user-guide"
+notes = [
+  "AGENTS.md from the repo root down to cwd (deeper wins); also accepts AGENT.md, CLAUDE.md and CLAUDE.local.md. There is no GROK.md.",
+  ".grok/rules/*.md always apply; .claude/rules/ and .cursor/rules/ are read too when the compat toggles are on (not shown).",
+  "Memory is experimental and off by default ([memory] enabled = true or GROK_MEMORY=1).",
+]
+config_dir = { default = "~/.grok", env = "GROK_HOME" }
+detect = { dirs = ["{config_dir}"], bins = ["grok"] }
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/AGENTS.md"
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/rules/*.md"
+label = "rules"
+
+[[tool.source]]
+scope = "auto_memory"
+path = "{config_dir}/memory/MEMORY.md"
+label = "memory"
+
+[[tool.source]]
+scope = "project"
+walk = "git_root_down_to_cwd"
+candidates = ["AGENTS.md", "Agents.md", "AGENT.md", "CLAUDE.md", "Claude.md"]
+one_per_dir = true
+local_variant = "CLAUDE.local.md"
+glob = ".grok/rules/*.md"
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md", "AGENT.md", "CLAUDE.md"]
+glob = ".grok/rules/*.md"
+load_mode = "on_demand"
+
+# ═══════════════════════════════════════════════════════════════ Summarizers
+# AI CLIs that can summarize one file on demand (`s` in the TUI). Listed in
+# preference order; the first one installed is the default. Each is run with
+# its tools disabled or read-only, in an empty temp directory, with a timeout.
+# `{prompt}` is the instruction; content arrives on stdin, or inside the
+# prompt (`prompt_arg`), or as a temp file path in `{file}` (`file_arg`).
+
+[[summarizer]]
+id = "claude"
+name = "Claude Code"
+bin = "claude"
+login = "run `claude` and type /login"
+args = ["-p", "--tools", "", "--permission-mode", "dontAsk", "--no-session-persistence", "--output-format", "text", "{prompt}"]
+content = "stdin"
+
+[[summarizer]]
+id = "codex"
+name = "Codex CLI"
+bin = "codex"
+login = "run `codex login`"
+args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--ignore-rules", "{prompt}"]
+content = "stdin"
+
+[[summarizer]]
+id = "grok"
+name = "Grok Build"
+bin = "grok"
+login = "run `grok` and follow the sign-in prompt (or set XAI_API_KEY)"
+args = ["-p", "{prompt}", "--tools", "", "--permission-mode", "dontAsk", "--output-format", "plain"]
+content = "prompt_arg"
+
+[[summarizer]]
+id = "gemini"
+name = "Gemini CLI"
+bin = "gemini"
+login = "run `gemini` and pick a sign-in method"
+args = ["-p", "{prompt}", "--approval-mode", "plan", "-o", "text"]
+content = "stdin"
+
+[[summarizer]]
+id = "copilot"
+name = "GitHub Copilot CLI"
+bin = "copilot"
+login = "run `copilot` and type /login"
+args = ["-p", "{prompt}", "-s", "--deny-tool", "shell(*)", "--output-format", "text"]
+content = "prompt_arg"
+
+[[summarizer]]
+id = "amp"
+name = "Amp"
+bin = "amp"
+login = "run `amp login`"
+args = ["-x", "{prompt}"]
+content = "stdin"
+
+[[summarizer]]
+id = "opencode"
+name = "OpenCode"
+bin = "opencode"
+login = "run `opencode auth login`"
+args = ["run", "{prompt}", "-f", "{file}"]
+content = "file_arg"

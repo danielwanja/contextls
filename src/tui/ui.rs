@@ -23,8 +23,45 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match app.overlay {
         Overlay::Help => draw_help(frame, main),
         Overlay::Details => draw_details(frame, app, main),
+        Overlay::Pick => draw_pick(frame, app, main),
         Overlay::None => {}
     }
+}
+
+fn draw_pick(frame: &mut Frame, app: &App, area: Rect) {
+    let mut lines = vec![
+        Line::from("  Which installed CLI should write summaries?").dark_gray(),
+        Line::from(""),
+    ];
+    for (i, p) in app.providers.iter().enumerate() {
+        let cursor = if i == app.pick_cursor { "▸" } else { " " };
+        let current = if i == app.provider {
+            "  ✓ current"
+        } else {
+            ""
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {cursor} {} ", i + 1), Style::new().yellow()),
+            Span::styled(p.def.name.clone(), Style::new().bold()),
+            Span::styled(
+                format!("  {}{current}", p.path.display()),
+                Style::new().dark_gray(),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from("  j/k or 1-9 · Enter select · Esc").dark_gray());
+    let width = lines.iter().map(|l| l.width()).max().unwrap_or(40) as u16 + 4;
+    let rect = centered(area, width.max(44), lines.len() as u16 + 2);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .title(" Summarizer ")
+                .border_style(Style::new().cyan()),
+        ),
+        rect,
+    );
 }
 
 fn pane_block(title: String, focused: bool) -> Block<'static> {
@@ -71,6 +108,77 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 fn draw_preview(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Focus::Preview;
     let (title, body): (String, Text) = match app.preview_path() {
+        Some(path) if app.summarizing().is_some() => {
+            let (provider, elapsed) = app.summarizing().expect("checked");
+            let name = display_path(&path, &app.root, &app.inv.home);
+            const FRAMES: [&str; 4] = ["◐", "◓", "◑", "◒"];
+            let frame_ch = FRAMES[(elapsed.as_millis() / 150) as usize % FRAMES.len()];
+            (
+                format!(
+                    "{frame_ch} summarizing {name} with {provider} · {}s",
+                    elapsed.as_secs()
+                ),
+                Text::from(vec![
+                    Line::from(""),
+                    Line::from(format!("  Asking {provider} for a summary…")).dark_gray(),
+                    Line::from("  (the CLI runs with tools disabled in an empty directory)")
+                        .dark_gray(),
+                ]),
+            )
+        }
+        Some(path) if app.show_summary && app.summary_error.is_some() => {
+            let name = display_path(&path, &app.root, &app.inv.home);
+            let err = app.summary_error.as_ref().expect("checked");
+            let mut lines = vec![Line::from("")];
+            if err.needs_login {
+                lines.push(
+                    Line::from(format!("  {} is not logged in.", err.provider))
+                        .yellow()
+                        .bold(),
+                );
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::raw("  To fix: "),
+                    Span::styled(
+                        err.login
+                            .clone()
+                            .unwrap_or_else(|| "log in to that CLI in a terminal".into()),
+                        Style::new().cyan().bold(),
+                    ),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(
+                    Line::from("  Then press S to retry, or p to pick another CLI.").dark_gray(),
+                );
+                lines.push(Line::from(""));
+                lines.push(Line::from("  What the CLI said:").dark_gray());
+            } else {
+                lines.push(Line::from("  Summary failed:").red());
+                lines.push(Line::from(""));
+            }
+            lines.extend(
+                err.message
+                    .lines()
+                    .map(|l| Line::from(format!("  {l}")).dark_gray()),
+            );
+            lines.push(Line::from(""));
+            lines.push(
+                Line::from("  S retries · p picks another CLI · Esc shows the file").dark_gray(),
+            );
+            (format!("summary · {name}"), Text::from(lines))
+        }
+        Some(path) if app.show_summary && app.summary_for(&path).is_some() => {
+            let s = app.summary_for(&path).expect("checked");
+            let name = display_path(&path, &app.root, &app.inv.home);
+            (
+                format!(
+                    "summary · {name} · by {} in {}s",
+                    s.provider,
+                    s.elapsed.as_secs()
+                ),
+                tui_markdown::from_str(&s.text),
+            )
+        }
         Some(path) => {
             let title = display_path(&path, &app.root, &app.inv.home);
             // Imports of the selected entry become links (followed from the details overlay).
@@ -203,7 +311,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Line::from("")
     };
-    const FULL_HINTS: &str = "j/k move · / filter · i details · e edit · g group · m missing · a all tools · ? help · q quit ";
+    const FULL_HINTS: &str = "j/k move · / filter · i details · s summary · e edit · g group · m missing · a all tools · ? help · q quit ";
     const SHORT_HINTS: &str = "? help · q quit ";
     // Keep room for the file info; shrink the hints before clipping it.
     let hints = if left.width() + FULL_HINTS.len() + 2 <= area.width as usize {
@@ -247,6 +355,12 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "details: frontmatter, imports (1-9 to follow), warnings",
         ),
         ("e", "open in $VISUAL / $EDITOR"),
+        ("o", "reveal in Finder / file manager"),
+        (
+            "s / S",
+            "summarize this file with an installed AI CLI (S: redo) · s again: back",
+        ),
+        ("p", "pick which CLI summarizes (claude, codex, grok, …)"),
         ("g", "group by tool ⇄ by scope"),
         ("m", "show / hide expected-but-missing locations"),
         ("a", "show not-detected tools as regular tools"),
@@ -262,7 +376,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             ])
         })
         .collect();
-    let rect = centered(area, 70, lines.len() as u16 + 2);
+    let rect = centered(area, 86, lines.len() as u16 + 2);
     frame.render_widget(Clear, rect);
     frame.render_widget(
         Paragraph::new(lines).block(
