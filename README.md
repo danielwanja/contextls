@@ -24,11 +24,40 @@ Every tool has its own filenames, lookup rules, import syntax and precedence.
 
 ## Install
 
+Homebrew (macOS or Linux):
+
+```bash
+brew install danielwanja/tap/contextls
+```
+
+Without Homebrew — the installer picks the right binary, verifies its
+checksum and puts it in `~/.local/bin` (no `sudo`, no Rust needed):
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/danielwanja/contextls/releases/latest/download/contextls-installer.sh | sh
+```
+
+With Rust 1.88+:
+
 ```bash
 cargo install --git https://github.com/danielwanja/contextls
 ```
 
-Requires Rust 1.88+. From a checkout, `cargo install --path .`.
+Prebuilt archives for macOS (Apple Silicon, Intel) and Linux (x86-64, arm64)
+are on the [Releases](https://github.com/danielwanja/contextls/releases) page.
+
+### Releasing
+
+Releases are built by [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
+in GitHub Actions ([`release.yml`](.github/workflows/release.yml)). Bump the
+version in `Cargo.toml`, commit, then push a matching tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+That publishes the GitHub Release and updates the formula in
+[`danielwanja/homebrew-tap`](https://github.com/danielwanja/homebrew-tap).
 
 ## License
 
