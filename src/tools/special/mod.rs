@@ -6,6 +6,7 @@
 mod aider;
 mod claude;
 mod codex;
+mod copilot;
 mod cursor;
 mod gemini;
 
@@ -27,6 +28,7 @@ pub fn finish(def: &ToolDef, ctx: &Ctx, entries: &mut Vec<Entry>) {
         "aider" => aider::finish(def, ctx, entries),
         "claude-code" => claude::finish(def, ctx, entries),
         "codex-cli" => codex::finish(def, ctx, entries),
+        "copilot" => copilot::finish(def, ctx, entries),
         "cursor" => cursor::finish(entries),
         _ => {}
     }

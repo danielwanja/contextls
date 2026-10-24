@@ -92,7 +92,7 @@ tool's own settings, auto-memory paths, first-match ladders) lives in
 | Gemini CLI | `~/.gemini/GEMINI.md` | `GEMINI.md` to the git root (honours `context.fileName`) |
 | Codex CLI | `$CODEX_HOME/AGENTS(.override).md` | git root → cwd, one file per dir, config fallbacks |
 | Cursor | *(settings DB — not a file)* | `.cursor/rules/*.mdc`, `AGENTS.md`, legacy `.cursorrules` |
-| GitHub Copilot | `~/.copilot/…` | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `AGENTS.md`, prompts |
+| GitHub Copilot | `~/.copilot/…`, Copilot Chat repo memories (VS Code `workspaceStorage`) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `AGENTS.md`, prompts |
 | Windsurf / Devin | `global_rules.md`, memories | `.devin/rules/`, `.windsurf/rules/`, `.windsurfrules`, `AGENTS.md` |
 | Cline | `~/Documents/Cline/Rules`, `~/.cline/rules` | `.clinerules/`, `.cline/rules/`, `AGENTS.md`, `.cursorrules`, `.windsurfrules` |
 | Roo Code | `~/.roo/rules*/` | `.roo/rules-<mode>/`, `AGENTS.md`, `.roo/rules/`, legacy `.roorules` |
