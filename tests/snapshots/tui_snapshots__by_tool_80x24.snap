@@ -1,0 +1,28 @@
+---
+source: tests/tui_snapshots.rs
+expression: term.backend()
+---
+"┌ /repo ───────────────────────┐┌ ./CLAUDE.md ─────────────────────────────────┐"
+"│▾ Claude Code  3 files · ≈28 t││# Repo rules                                  │"
+"│  ▾ Project  2                ││                                              │"
+"│       2 ./CLAUDE.md ↳1 shared││Use tabs. See @docs/arch.md.                  │"
+"│       4 ./.claude/rules/db.md││                                              │"
+"│  ▾ Local  1                  ││- one                                         │"
+"│       3 ./CLAUDE.local.md    ││- two                                         │"
+"│▾ Cursor  1 file · ≈15 tok    ││                                              │"
+"│  ▾ Project  1                ││                                              │"
+"│       1 ./CLAUDE.md          ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"│                              ││                                              │"
+"└──────────────────────────────┘└──────────────────────────────────────────────┘"
+" Claude Code Project · 60 B · ≈15 · - · git tracked             ? help · q quit "

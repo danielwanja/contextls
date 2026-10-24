@@ -1,0 +1,40 @@
+[package]
+name = "contextls"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "List the context / memory / instruction files each AI coding tool loads for a folder"
+license = "MIT"
+readme = "README.md"
+keywords = ["cli", "tui", "ai", "agents", "context"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+comfy-table = "8"
+etcetera = "0.11"
+globset = "0.4"
+humantime = "2"
+ignore = "0.4"
+nucleo-matcher = "0.3"
+ratatui = "0.30"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+thiserror = "2"
+toml = "1"
+tui-markdown = { version = "0.3", default-features = false }
+tui-tree-widget = "0.24"
+
+[dev-dependencies]
+assert_cmd = "2"
+insta = "1"
+predicates = "3"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

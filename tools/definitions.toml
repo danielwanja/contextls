@@ -1,0 +1,609 @@
+# Tool definitions for contextls.
+#
+# One [[tool]] per AI coding tool. Each [[tool.source]] describes one place the
+# tool looks for context files. Sources are listed in the tool's load order;
+# within a walking source each directory yields candidates, then glob matches,
+# then the local_variant.
+#
+# Verified against official docs on 2026-10-24. When a tool changes its rules,
+# edit this file — no Rust needed unless the lookup *shape* is new.
+
+# ─────────────────────────────────────────────────────────────── Claude Code
+[[tool]]
+id = "claude-code"
+name = "Claude Code"
+homepage = "https://code.claude.com/docs/en/memory"
+notes = [
+  "Files concatenate managed → user → project → local; ancestors load root-first.",
+  "AGENTS.md is read only when no CLAUDE.md exists anywhere up the tree (configurable).",
+  "@imports resolve relative to the importing file, max 4 hops, skipped inside code fences.",
+]
+config_dir = { default = "~/.claude", env = "CLAUDE_CONFIG_DIR" }
+
+[[tool.source]]
+scope = "managed"
+path = "/Library/Application Support/ClaudeCode/CLAUDE.md"
+platform = "macos"
+
+[[tool.source]]
+scope = "managed"
+path = "/etc/claude-code/CLAUDE.md"
+platform = "linux"
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/CLAUDE.md"
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/rules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+# Per directory: CLAUDE.md / .claude/CLAUDE.md, then .claude/rules/**, then CLAUDE.local.md.
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_root"
+candidates = ["CLAUDE.md", ".claude/CLAUDE.md"]
+glob = ".claude/rules/**/*.md"
+local_variant = "CLAUDE.local.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["CLAUDE.md", ".claude/CLAUDE.md"]
+glob = ".claude/rules/**/*.md"
+local_variant = "CLAUDE.local.md"
+load_mode = "on_demand"
+import_syntax = "at_path"
+
+# ───────────────────────────────────────────────────── Gemini / Antigravity CLI
+[[tool]]
+id = "gemini-cli"
+name = "Gemini CLI"
+homepage = "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md"
+notes = [
+  "Context file name is configurable via settings.json `context.fileName` (string or list); contextls reads it.",
+  "Ancestors load up to the git root; subdirectory files load just-in-time.",
+  "@imports: @./x.md, @../x.md, @/abs — max depth 5, ignored inside code blocks.",
+]
+config_dir = { default = "~/.gemini", env = "GEMINI_CLI_HOME" }
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/GEMINI.md"
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["GEMINI.md"]
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["GEMINI.md"]
+load_mode = "on_demand"
+import_syntax = "at_path"
+
+# ─────────────────────────────────────────────────────────────────── Codex CLI
+[[tool]]
+id = "codex-cli"
+name = "Codex CLI"
+homepage = "https://developers.openai.com/codex/guides/agents-md"
+notes = [
+  "Global: AGENTS.override.md else AGENTS.md in $CODEX_HOME (first non-empty only).",
+  "Project: git root down to cwd, one file per directory (override > AGENTS.md > config fallbacks).",
+  "Combined project docs capped at project_doc_max_bytes (32 KiB default).",
+]
+config_dir = { default = "~/.codex", env = "CODEX_HOME" }
+
+[[tool.source]]
+scope = "user"
+walk = "none"
+path = "{config_dir}"
+candidates = ["AGENTS.override.md", "AGENTS.md"]
+one_per_dir = true
+
+[[tool.source]]
+scope = "project"
+walk = "git_root_down_to_cwd"
+candidates = ["AGENTS.override.md", "AGENTS.md"]
+one_per_dir = true
+
+# ──────────────────────────────────────────────────────────────────── Cursor
+[[tool]]
+id = "cursor"
+name = "Cursor"
+homepage = "https://cursor.com/docs/context/rules"
+notes = [
+  "User Rules live in Cursor Settings (not a file) and Team Rules in the dashboard — not shown here.",
+  ".cursor/rules only reads .mdc files; frontmatter alwaysApply / globs / description set the activation.",
+  "Nested AGENTS.md applies to its directory and children; the closest one wins.",
+]
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".cursor/rules/**/*.mdc"
+frontmatter_globs_key = "globs"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md", "CLAUDE.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md"]
+load_mode = "on_demand"
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+glob = ".cursor/rules/**/*.mdc"
+frontmatter_globs_key = "globs"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".cursorrules"]
+legacy = true
+
+# ──────────────────────────────────────────────────────────── GitHub Copilot
+[[tool]]
+id = "copilot"
+name = "GitHub Copilot"
+homepage = "https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions"
+notes = [
+  "Personal (~/.copilot) > repository > organization instructions; all are provided together.",
+  ".github/instructions/*.instructions.md apply through their applyTo globs; the nearest AGENTS.md wins (VS Code reads nested ones only with chat.useNestedAgentsMdFiles).",
+  "CLAUDE.md / GEMINI.md are read only as a single file at the repository root.",
+]
+config_dir = { default = "~/.copilot" }
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/copilot-instructions.md"
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/instructions/**/*.instructions.md"
+frontmatter_globs_key = "applyTo"
+load_mode = "frontmatter"
+label = "instructions"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".github/copilot-instructions.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".github/instructions/**/*.instructions.md"
+frontmatter_globs_key = "applyTo"
+load_mode = "frontmatter"
+label = "instructions"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md"]
+load_mode = "on_demand"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["CLAUDE.md", "GEMINI.md"]
+load_mode = "fallback"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".github/prompts/*.prompt.md"
+load_mode = "manual"
+label = "prompts"
+
+# ─────────────────────────────────────────────────────── Windsurf / Devin Local
+[[tool]]
+id = "windsurf"
+name = "Windsurf / Devin"
+homepage = "https://docs.devin.ai/desktop/cascade/memories"
+notes = [
+  "Rules: .devin/rules/*.md preferred, .windsurf/rules/*.md as fallback (12,000 chars each); global_rules.md is capped at 6,000 chars.",
+  "Frontmatter trigger: always_on | model_decision | glob (with globs) | manual.",
+  "AGENTS.md at the root is always on; in subdirectories it is scoped to that directory.",
+]
+config_dir = { default = "~/.codeium/windsurf" }
+
+[[tool.source]]
+scope = "managed"
+glob = "/Library/Application Support/Devin/rules/*.md"
+platform = "macos"
+label = "rules"
+
+[[tool.source]]
+scope = "managed"
+glob = "/Library/Application Support/Windsurf/rules/*.md"
+platform = "macos"
+legacy = true
+label = "rules"
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/memories/global_rules.md"
+
+[[tool.source]]
+scope = "auto_memory"
+glob = "{config_dir}/memories/*.md"
+label = "memory"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".devin/rules/*.md"
+frontmatter_globs_key = "globs"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".windsurf/rules/*.md"
+frontmatter_globs_key = "globs"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".windsurfrules"]
+legacy = true
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md"]
+load_mode = "on_demand"
+
+# ───────────────────────────────────────────────────────────────────── Cline
+[[tool]]
+id = "cline"
+name = "Cline"
+homepage = "https://docs.cline.bot/features/cline-rules"
+notes = [
+  "Workspace rules (.clinerules/ and .cline/rules/) are merged and win over global rules; `paths:` frontmatter makes a rule conditional.",
+  "Also picks up .cursorrules and .windsurfrules, and AGENTS.md at the root or in ~/.agents/.",
+  "Multi-root workspaces: only the first folder is read.",
+]
+config_dir = { default = "~/.cline" }
+
+[[tool.source]]
+scope = "user"
+glob = "~/Documents/Cline/Rules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/rules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "user"
+glob = "~/Cline/Rules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "user"
+path = "~/.agents/AGENTS.md"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".clinerules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".cline/rules/**/*.md"
+frontmatter_globs_key = "paths"
+load_mode = "frontmatter"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".clinerules"]
+legacy = true
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".cursorrules", ".windsurfrules"]
+legacy = true
+
+# ────────────────────────────────────────────────────────────────── Roo Code
+[[tool]]
+id = "roo-code"
+name = "Roo Code"
+homepage = "https://roocodeinc.github.io/Roo-Code/features/custom-instructions"
+notes = [
+  "Order: global → workspace; mode-specific rules (rules-<mode>/) before general rules; AGENTS.md sits between them.",
+  "Rule directories are read recursively in alphabetical order (symlinks followed up to depth 5).",
+  "Legacy .roorules / .roorules-<mode> files are used only when the rules directory is missing or empty.",
+]
+config_dir = { default = "~/.roo" }
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/rules-*/**/*.md"
+label = "mode rules"
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/rules/**/*.md"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".roo/rules-*/**/*.md"
+label = "mode rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md", "AGENT.md"]
+one_per_dir = true
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".roo/rules/**/*.md"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".roorules"]
+load_mode = "fallback"
+legacy = true
+
+# ───────────────────────────────────────────────────────────────────── Aider
+[[tool]]
+id = "aider"
+name = "Aider"
+homepage = "https://aider.chat/docs/usage/conventions.html"
+notes = [
+  "Nothing is loaded automatically: files come from `read:` in .aider.conf.yml (home → git root → cwd, later wins) or --read.",
+  "CONVENTIONS.md is the documented convention, but only when listed under read:.",
+]
+
+[[tool.source]]
+scope = "user"
+path = "~/.aider.conf.yml"
+label = "config"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".aider.conf.yml"]
+label = "config"
+
+# ─────────────────────────────────────────────────────────────────────── Zed
+[[tool]]
+id = "zed"
+name = "Zed"
+homepage = "https://zed.dev/docs/ai/instructions.md"
+notes = [
+  "Project instructions: the first existing file wins, in this order: .rules, .cursorrules, .windsurfrules, .clinerules, .github/copilot-instructions.md, AGENT.md, AGENTS.md, CLAUDE.md, GEMINI.md.",
+  "Project instructions override the personal ~/.config/zed/AGENTS.md.",
+  "Checked in the inspected folder only (Zed uses the worktree root).",
+]
+
+[[tool.source]]
+scope = "user"
+path = "~/.config/zed/AGENTS.md"
+
+[[tool.source]]
+scope = "project"
+walk = "first_match"
+candidates = [
+  ".rules",
+  ".cursorrules",
+  ".windsurfrules",
+  ".clinerules",
+  ".github/copilot-instructions.md",
+  "AGENT.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+]
+
+# ────────────────────────────────────────────────────────────────────── Kiro
+[[tool]]
+id = "kiro"
+name = "Kiro"
+homepage = "https://kiro.dev/docs/steering/"
+notes = [
+  "Steering frontmatter `inclusion`: always | fileMatch (with fileMatchPattern) | manual | auto.",
+  "#[[file:path]] and #[[folder:path]] references pull other files in; workspace steering wins over ~/.kiro/steering/.",
+  "AGENTS.md is read from ~/.kiro/steering/, the workspace root and subdirectories.",
+]
+config_dir = { default = "~/.kiro" }
+
+[[tool.source]]
+scope = "user"
+glob = "{config_dir}/steering/**/*.md"
+frontmatter_globs_key = "fileMatchPattern"
+load_mode = "frontmatter"
+import_syntax = "kiro_ref"
+label = "steering"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".kiro/steering/**/*.md"
+frontmatter_globs_key = "fileMatchPattern"
+load_mode = "frontmatter"
+import_syntax = "kiro_ref"
+label = "steering"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md"]
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md"]
+load_mode = "on_demand"
+
+# ────────────────────────────────────────────────────────── JetBrains Junie
+[[tool]]
+id = "junie"
+name = "JetBrains Junie"
+homepage = "https://junie.jetbrains.com/docs/guidelines-and-memory.html"
+notes = [
+  "Order: custom path (IDE settings) → .junie/AGENTS.md → root AGENTS.md, plus .junie/playbook.md and .junie/rules/*.md; .junie/guidelines.md is legacy.",
+  "Project guidelines win over ~/.junie/AGENTS.md; identical content is deduplicated.",
+]
+config_dir = { default = "~/.junie" }
+
+[[tool.source]]
+scope = "user"
+path = "{config_dir}/AGENTS.md"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".junie/AGENTS.md", "AGENTS.md"]
+one_per_dir = true
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".junie/playbook.md"]
+label = "playbook"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".junie/rules/*.md"
+label = "rules"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = [".junie/guidelines.md"]
+load_mode = "fallback"
+legacy = true
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+glob = ".junie/guidelines/**/*.md"
+load_mode = "fallback"
+legacy = true
+
+# ─────────────────────────────────────────────────────────────────────── Amp
+[[tool]]
+id = "amp"
+name = "Amp"
+homepage = "https://ampcode.com/docs/customize/agents-md"
+notes = [
+  "AGENTS.md from the folder up to $HOME, per directory falling back to AGENT.md then CLAUDE.md; subtree files load when a file there is read.",
+  "@path mentions (relative to the file, @~/ and globs) pull other files in.",
+  "AMP_IGNORE_GUIDANCE_FILES disables all of these.",
+]
+
+[[tool.source]]
+scope = "managed"
+path = "/Library/Application Support/ampcode/AGENTS.md"
+platform = "macos"
+
+[[tool.source]]
+scope = "user"
+path = "~/.config/amp/AGENTS.md"
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "user"
+path = "~/.config/AGENTS.md"
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_home"
+candidates = ["AGENTS.md", "AGENT.md", "CLAUDE.md"]
+one_per_dir = true
+import_syntax = "at_path"
+
+[[tool.source]]
+scope = "project"
+walk = "descendants"
+candidates = ["AGENTS.md", "AGENT.md", "CLAUDE.md"]
+load_mode = "on_demand"
+import_syntax = "at_path"
+
+# ────────────────────────────────────────────────────────────────── OpenCode
+[[tool]]
+id = "opencode"
+name = "OpenCode"
+homepage = "https://opencode.ai/docs/rules/"
+notes = [
+  "Walks up from the folder looking for AGENTS.md, then CLAUDE.md; global ~/.config/opencode/AGENTS.md with ~/.claude/CLAUDE.md as fallback.",
+  "The `instructions` array in opencode.json can add more files or URLs (not shown).",
+]
+
+[[tool.source]]
+scope = "user"
+path = "~/.config/opencode/AGENTS.md"
+
+[[tool.source]]
+scope = "user"
+path = "~/.claude/CLAUDE.md"
+load_mode = "fallback"
+
+[[tool.source]]
+scope = "project"
+walk = "ancestors_to_git_root"
+candidates = ["AGENTS.md", "CLAUDE.md"]
+one_per_dir = true

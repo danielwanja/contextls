@@ -1,0 +1,38 @@
+use std::io::IsTerminal;
+
+use anyhow::Result;
+use clap::Parser;
+
+use contextls::cli::Args;
+use contextls::{output, scan, tools, tui};
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let defs = tools::registry::load()?;
+
+    if args.list_tools {
+        for t in &defs.tools {
+            println!("{:<14} {}", t.id, t.name);
+        }
+        return Ok(());
+    }
+
+    let root = match &args.path {
+        Some(p) => p.clone(),
+        None => std::env::current_dir()?,
+    };
+    let opts = scan::ScanOptions {
+        tools: args.tools.clone(),
+        git: !args.no_git,
+    };
+    let inventory = scan::scan_with(&defs, &root, &opts)?;
+
+    if args.json {
+        println!("{}", output::json::render(&inventory)?);
+    } else if args.plain || !std::io::stdout().is_terminal() {
+        print!("{}", output::table::render(&inventory, args.all));
+    } else {
+        tui::run(defs, root, opts, inventory, args.group)?;
+    }
+    Ok(())
+}
