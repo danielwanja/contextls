@@ -704,6 +704,15 @@ login = "run `gemini` and pick a sign-in method"
 args = ["-p", "{prompt}", "--approval-mode", "plan", "-o", "text"]
 content = "stdin"
 
+# Antigravity CLI replaced Gemini CLI for consumer tiers in June 2026.
+[[summarizer]]
+id = "agy"
+name = "Antigravity CLI"
+bin = "agy"
+login = "run `agy` and sign in with your Google account"
+args = ["-p", "{prompt}", "--mode", "plan", "--output-format", "text"]
+content = "prompt_arg"
+
 [[summarizer]]
 id = "copilot"
 name = "GitHub Copilot CLI"

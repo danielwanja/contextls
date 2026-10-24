@@ -26,6 +26,10 @@ fn main() -> Result<()> {
             };
             println!("{:<10} {:<20} {mark}", s.id, s.name);
         }
+        println!(
+            "\nSearched PATH plus common install dirs (~/.local/bin, Homebrew, npm/nvm/volta/pnpm/bun). \
+             Missing one? Check `which <bin>` in your shell."
+        );
         return Ok(());
     }
 

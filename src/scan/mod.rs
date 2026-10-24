@@ -128,3 +128,13 @@ fn platform() -> &'static str {
         "linux"
     }
 }
+
+impl Env {
+    /// An environment built from explicit pairs (tests).
+    pub fn from_pairs(pairs: &[(&str, &str)]) -> Self {
+        Env(pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect())
+    }
+}
