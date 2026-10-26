@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -19,6 +19,7 @@ use crate::output::{fmt_age_short, fmt_tokens};
 use crate::scan::{Env, ScanOptions, scan_with};
 use crate::summarize::{self, Failure, Provider, Summary};
 use crate::tools::schema::Definitions;
+use crate::tui::watch::Watcher;
 
 pub const SCOPES: [Scope; 5] = [
     Scope::Managed,
@@ -42,6 +43,13 @@ pub enum Overlay {
     /// Choose the summarizer CLI.
     Pick,
 }
+
+/// Quiet period after the last filesystem event before re-scanning.
+pub const WATCH_DEBOUNCE: Duration = Duration::from_millis(400);
+/// Without a filesystem watcher: how often known files are stat'ed.
+pub const WATCH_POLL: Duration = Duration::from_secs(5);
+/// Full re-scan interval, watcher or not (catches anything the events missed).
+pub const WATCH_FULL: Duration = Duration::from_secs(60);
 
 /// A summary being produced on a worker thread.
 pub struct SummaryJob {
@@ -81,10 +89,36 @@ pub struct App {
     pub show_summary: bool,
     /// Last summary failure, shown in the preview until the next attempt.
     pub summary_error: Option<Failure>,
-    summaries: HashMap<PathBuf, Summary>,
+    /// Refresh the tree when files change (`--no-watch` turns it off).
+    pub watch: bool,
+    /// Summaries keyed by path, with the file mtime they were made from.
+    summaries: HashMap<PathBuf, (Option<SystemTime>, Summary)>,
     job: Option<SummaryJob>,
+    /// A re-scan running on a worker thread, with the status to show when it lands.
+    rescan_rx: Option<mpsc::Receiver<(Result<Inventory, String>, String)>>,
+    /// Filesystem watcher; `None` means we fall back to stat polling.
+    watcher: Option<Watcher>,
+    /// Paths reported changed, waiting for the debounce window to close.
+    pending: Vec<PathBuf>,
+    pending_since: Option<Instant>,
+    watch_last_poll: Instant,
+    watch_last_full: Instant,
+    /// mtimes of every known file and its directory, to spot changes cheaply.
+    fingerprint: HashMap<PathBuf, Option<SystemTime>>,
     matcher: Matcher,
     contents: HashMap<PathBuf, Result<String, String>>,
+}
+
+/// How the TUI starts: the command-line choices that shape the view.
+#[derive(Debug, Clone, Default)]
+pub struct TuiOptions {
+    pub grouping: Grouping,
+    /// Show not-detected tools like any other instead of collapsing them.
+    pub all_tools: bool,
+    /// Preferred summarizer id (`--summarizer`).
+    pub summarizer: Option<String>,
+    /// Refresh when files change.
+    pub watch: bool,
 }
 
 impl App {
@@ -93,10 +127,14 @@ impl App {
         root: PathBuf,
         opts: ScanOptions,
         inv: Inventory,
-        grouping: Grouping,
-        all_tools: bool,
-        summarizer: Option<String>,
+        ui: TuiOptions,
     ) -> Self {
+        let TuiOptions {
+            grouping,
+            all_tools,
+            summarizer,
+            watch,
+        } = ui;
         let providers = summarize::available(&defs.summarizers, &Env::from_process());
         let mut status = None;
         let provider = match &summarizer {
@@ -131,14 +169,211 @@ impl App {
             pick_cursor: provider,
             show_summary: false,
             summary_error: None,
+            watch,
             summaries: HashMap::new(),
             job: None,
+            rescan_rx: None,
+            watcher: None,
+            pending: Vec::new(),
+            pending_since: None,
+            watch_last_poll: Instant::now(),
+            watch_last_full: Instant::now(),
+            fingerprint: HashMap::new(),
             matcher: Matcher::new(Config::DEFAULT),
             contents: HashMap::new(),
         };
         app.open_all();
         app.select_first_entry();
+        app.fingerprint = app.take_fingerprint();
+        app.restart_watcher();
         app
+    }
+
+    // ──────────────────────────────────────────────── watching & rescans
+
+    /// Called every frame. With a watcher: collect events and re-scan once
+    /// they go quiet. Without one: stat known files every `WATCH_POLL`.
+    /// Either way, re-scan everything every `WATCH_FULL`.
+    pub fn tick_watch(&mut self) {
+        if !self.watch || self.rescan_rx.is_some() {
+            return;
+        }
+        if self.watch_last_full.elapsed() >= WATCH_FULL {
+            self.start_rescan("refreshed".into());
+            return;
+        }
+        match &self.watcher {
+            Some(w) => {
+                let changed = w.drain();
+                if !changed.is_empty() {
+                    self.pending.extend(changed);
+                    self.pending_since = Some(Instant::now());
+                }
+                if let Some(since) = self.pending_since
+                    && since.elapsed() >= WATCH_DEBOUNCE
+                {
+                    let paths = std::mem::take(&mut self.pending);
+                    self.pending_since = None;
+                    self.start_rescan(update_reason(&paths));
+                }
+            }
+            None => {
+                if self.watch_last_poll.elapsed() >= WATCH_POLL {
+                    self.poll_watch_now();
+                }
+            }
+        }
+    }
+
+    /// True when a watcher is active (as opposed to the polling fallback).
+    pub fn watching(&self) -> bool {
+        self.watcher.is_some()
+    }
+
+    /// (Re)create the watcher for the current inventory: the folder plus the
+    /// directory of every entry, present or expected. Failure → polling.
+    fn restart_watcher(&mut self) {
+        self.watcher = None;
+        if !self.watch {
+            return;
+        }
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        let mut known: HashSet<PathBuf> = HashSet::new();
+        for e in self.inv.tools.iter().flat_map(|t| t.entries.iter()) {
+            if e.exists {
+                known.insert(e.path.clone());
+            }
+            if let Some(d) = e.path.parent()
+                && !dirs.iter().any(|x| x == d)
+            {
+                dirs.push(d.to_path_buf());
+            }
+        }
+        self.watcher = Watcher::start(&self.root, &dirs, known).ok();
+    }
+
+    /// Compare known files against the last fingerprint and re-scan on change.
+    /// Returns whether a re-scan was started.
+    pub fn poll_watch_now(&mut self) -> bool {
+        self.watch_last_poll = Instant::now();
+        let mut changed: Vec<String> = self
+            .fingerprint
+            .iter()
+            .filter(|(p, old)| mtime_of(p) != **old)
+            .map(|(p, _)| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.display().to_string())
+            })
+            .collect();
+        if changed.is_empty() {
+            return false;
+        }
+        changed.sort();
+        changed.dedup();
+        self.start_rescan(update_reason_names(changed));
+        true
+    }
+
+    fn start_rescan(&mut self, reason: String) {
+        if self.rescan_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let defs = self.defs.clone();
+        let root = self.root.clone();
+        let opts = self.opts.clone();
+        std::thread::spawn(move || {
+            let result = scan_with(&defs, &root, &opts).map_err(|e| e.to_string());
+            let _ = tx.send((result, reason));
+        });
+        self.rescan_rx = Some(rx);
+    }
+
+    /// Pick up a finished re-scan, if any. Call once per frame.
+    pub fn poll_rescan(&mut self) {
+        let Some(rx) = &self.rescan_rx else { return };
+        match rx.try_recv() {
+            Ok((Ok(inv), reason)) => {
+                self.rescan_rx = None;
+                self.apply_inventory(inv);
+                self.status = Some(reason);
+            }
+            Ok((Err(e), _)) => {
+                self.rescan_rx = None;
+                self.status = Some(format!("rescan failed: {e}"));
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => self.rescan_rx = None,
+        }
+    }
+
+    pub fn rescan_pending(&self) -> bool {
+        self.rescan_rx.is_some()
+    }
+
+    /// Swap in a new inventory without losing the user's place: same file
+    /// selected (by path, not row), same preview scroll, open nodes kept.
+    fn apply_inventory(&mut self, inv: Inventory) {
+        let selected = self.selected_entry().map(|(_, e)| e.path.clone());
+        let scroll = self.preview_scroll;
+        self.inv = inv;
+        self.contents.clear();
+        // A summary of a file that has since changed is stale.
+        let current: HashMap<PathBuf, Option<SystemTime>> = self
+            .inv
+            .tools
+            .iter()
+            .flat_map(|t| t.entries.iter().map(|e| (e.path.clone(), e.mtime)))
+            .collect();
+        self.summaries
+            .retain(|p, (mtime, _)| current.get(p) == Some(mtime));
+        self.open_all();
+        match selected.and_then(|p| self.index_of_path(&p)) {
+            Some((t, i)) => {
+                self.select_entry(t, i);
+                self.preview_scroll = scroll;
+            }
+            None => self.select_first_entry(),
+        }
+        self.fingerprint = self.take_fingerprint();
+        self.watch_last_full = Instant::now();
+        self.watch_last_poll = Instant::now();
+        // New files mean new directories to watch.
+        self.restart_watcher();
+        self.pending.clear();
+        self.pending_since = None;
+    }
+
+    fn index_of_path(&self, path: &Path) -> Option<(usize, usize)> {
+        self.inv.tools.iter().enumerate().find_map(|(t, tool)| {
+            tool.entries
+                .iter()
+                .position(|e| e.path == path)
+                .map(|i| (t, i))
+        })
+    }
+
+    /// Every existing file, its directory, and the inspected folder, with mtimes.
+    fn take_fingerprint(&self) -> HashMap<PathBuf, Option<SystemTime>> {
+        let mut fp = HashMap::new();
+        fp.insert(self.root.clone(), mtime_of(&self.root));
+        for e in self.inv.tools.iter().flat_map(|t| t.entries.iter()) {
+            if !e.exists {
+                continue;
+            }
+            fp.insert(e.path.clone(), e.mtime);
+            if let Some(dir) = e.path.parent() {
+                fp.entry(dir.to_path_buf()).or_insert_with(|| mtime_of(dir));
+            }
+        }
+        fp
+    }
+
+    fn entry_mtime(&self, path: &Path) -> Option<SystemTime> {
+        self.index_of_path(path)
+            .and_then(|(t, i)| self.inv.tools[t].entries[i].mtime)
+            .or_else(|| mtime_of(path))
     }
 
     // ──────────────────────────────────────────────────────── summaries
@@ -218,7 +453,8 @@ impl App {
                     summary.elapsed.as_secs()
                 ));
                 let path = job.path.clone();
-                self.summaries.insert(path, summary);
+                let mtime = self.entry_mtime(&path);
+                self.summaries.insert(path, (mtime, summary));
                 self.job = None;
             }
             Ok(Err(e)) => {
@@ -259,7 +495,7 @@ impl App {
     }
 
     pub fn summary_for(&self, path: &Path) -> Option<&Summary> {
-        self.summaries.get(path)
+        self.summaries.get(path).map(|(_, s)| s)
     }
 
     pub fn choose_provider(&mut self, i: usize) {
@@ -278,16 +514,10 @@ impl App {
         self.contents.insert(path, Ok(text));
     }
 
+    /// `r`: re-scan on the worker thread; the result lands via `poll_rescan`.
     pub fn rescan(&mut self) {
-        match scan_with(&self.defs, &self.root, &self.opts) {
-            Ok(inv) => {
-                self.inv = inv;
-                self.contents.clear();
-                self.open_all();
-                self.status = Some("rescanned".into());
-            }
-            Err(e) => self.status = Some(format!("rescan failed: {e}")),
-        }
+        self.status = Some("rescanning…".into());
+        self.start_rescan("rescanned".into());
     }
 
     pub fn toggle_grouping(&mut self) {
@@ -635,6 +865,39 @@ impl App {
     pub fn content(&self, path: &Path) -> Option<&Result<String, String>> {
         self.contents.get(path)
     }
+}
+
+fn mtime_of(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// "updated: a.md, b.md +3" from changed paths.
+fn update_reason(paths: &[PathBuf]) -> String {
+    let mut names: Vec<String> = paths
+        .iter()
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string())
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    update_reason_names(names)
+}
+
+fn update_reason_names(names: Vec<String>) -> String {
+    let shown: Vec<&str> = names.iter().map(String::as_str).take(3).collect();
+    let more = names.len().saturating_sub(shown.len());
+    format!(
+        "updated: {}{}",
+        shown.join(", "),
+        if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        }
+    )
 }
 
 // ───────────────────────────────────────────────────────── identifiers

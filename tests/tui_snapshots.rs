@@ -6,7 +6,7 @@ use contextls::cli::Grouping;
 use contextls::model::{Entry, GitStatus, Import, Install, Inventory, LoadMode, Scope, ToolReport};
 use contextls::scan::ScanOptions;
 use contextls::tools::registry;
-use contextls::tui::{App, ui};
+use contextls::tui::{App, TuiOptions, ui};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -147,9 +147,10 @@ fn app(grouping: Grouping) -> App {
         "/repo".into(),
         ScanOptions::default(),
         inventory(),
-        grouping,
-        false,
-        None,
+        TuiOptions {
+            grouping,
+            ..Default::default()
+        },
     );
     app.preload("/repo/CLAUDE.md".into(), REPO_MD.into());
     app.preload("/repo/CLAUDE.local.md".into(), "my notes\n".into());

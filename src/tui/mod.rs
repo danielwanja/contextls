@@ -5,26 +5,24 @@ pub mod app;
 mod editor;
 mod event;
 pub mod ui;
+pub mod watch;
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::cli::Grouping;
 use crate::model::Inventory;
 use crate::scan::ScanOptions;
 use crate::tools::schema::Definitions;
 
-pub use app::App;
+pub use app::{App, TuiOptions};
 
 pub fn run(
     defs: Definitions,
     root: PathBuf,
     opts: ScanOptions,
     inv: Inventory,
-    grouping: Grouping,
-    all_tools: bool,
-    summarizer: Option<String>,
+    ui: TuiOptions,
 ) -> Result<()> {
     // Leave the terminal usable if we panic.
     let hook = std::panic::take_hook();
@@ -34,7 +32,7 @@ pub fn run(
     }));
 
     let mut terminal = ratatui::init();
-    let mut app = App::new(defs, root, opts, inv, grouping, all_tools, summarizer);
+    let mut app = App::new(defs, root, opts, inv, ui);
     let result = event::run_loop(&mut terminal, &mut app);
     ratatui::restore();
     result

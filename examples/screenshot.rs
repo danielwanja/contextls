@@ -11,7 +11,7 @@ use contextls::cli::Grouping;
 use contextls::scan::{ScanOptions, scan_with};
 use contextls::tools::registry;
 use contextls::tui::app::Overlay;
-use contextls::tui::{App, ui};
+use contextls::tui::{App, TuiOptions, ui};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::{Color, Modifier};
@@ -23,11 +23,23 @@ fn css_color(c: Color, fg: bool) -> Option<&'static str> {
         Color::Red => "#e06c75",
         Color::Green => "#98c379",
         Color::Yellow => "#e5c07b",
-        Color::Blue => if fg { "#61afef" } else { "#3b6ea8" },
+        Color::Blue => {
+            if fg {
+                "#61afef"
+            } else {
+                "#3b6ea8"
+            }
+        }
         Color::Magenta => "#c678dd",
         Color::Cyan => "#56b6c2",
         Color::Gray => "#abb2bf",
-        Color::DarkGray => if fg { "#7f848e" } else { "#3a3f4b" },
+        Color::DarkGray => {
+            if fg {
+                "#7f848e"
+            } else {
+                "#3a3f4b"
+            }
+        }
         Color::LightRed => "#ef7a85",
         Color::LightGreen => "#a9d48a",
         Color::LightYellow => "#f0cf8c",
@@ -62,7 +74,16 @@ fn main() {
     } else {
         Grouping::Tool
     };
-    let mut app = App::new(defs, folder, opts, inv, grouping, false, None);
+    let mut app = App::new(
+        defs,
+        folder,
+        opts,
+        inv,
+        TuiOptions {
+            grouping,
+            ..Default::default()
+        },
+    );
     match view {
         "details" => app.overlay = Overlay::Details,
         "help" => app.overlay = Overlay::Help,

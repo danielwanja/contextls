@@ -56,10 +56,16 @@ pub struct Args {
     /// List the summarizer CLIs contextls knows, marking installed ones, and exit
     #[arg(long)]
     pub list_summarizers: bool,
+
+    /// Don't refresh the TUI when files change (default: check known files
+    /// every 5 s and re-scan everything every 60 s)
+    #[arg(long)]
+    pub no_watch: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 pub enum Grouping {
+    #[default]
     Tool,
     Scope,
 }

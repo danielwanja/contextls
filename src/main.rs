@@ -56,9 +56,12 @@ fn main() -> Result<()> {
             root,
             opts,
             inventory,
-            args.group,
-            args.all_tools,
-            args.summarizer.clone(),
+            tui::TuiOptions {
+                grouping: args.group,
+                all_tools: args.all_tools,
+                summarizer: args.summarizer.clone(),
+                watch: !args.no_watch,
+            },
         )?;
     }
     Ok(())

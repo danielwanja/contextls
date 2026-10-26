@@ -13,15 +13,20 @@ const PAGE: u16 = 10;
 
 pub fn run_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
+        app.tick_watch();
+        app.poll_rescan();
         app.poll_summary();
         app.ensure_content();
         terminal.draw(|f| ui::draw(f, app))?;
         if app.quit {
             return Ok(());
         }
-        // Redraw often while a summary is running (spinner, result pickup).
-        let wait = if app.job_active() {
+        // Redraw often while a summary or re-scan is running; otherwise wake
+        // once a second so the watcher gets its turn (ratatui only repaints diffs).
+        let wait = if app.job_active() || app.rescan_pending() {
             Duration::from_millis(120)
+        } else if app.watch {
+            Duration::from_secs(1)
         } else {
             Duration::from_secs(60)
         };

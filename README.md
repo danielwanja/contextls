@@ -73,6 +73,7 @@ contextls --json | jq     # machine-readable
 contextls --tool claude-code --tool cursor   # only some tools
 contextls --all           # include expected-but-missing locations
 contextls --all-tools     # don't collapse tools that aren't installed here
+contextls --no-watch      # don't refresh when files change
 contextls --list-tools
 ```
 
@@ -104,6 +105,16 @@ always, on demand (subdirectory files), when a glob matches, manually, or as a
 fallback. `@path` imports are resolved and checked; files loaded by several
 tools are marked `shared`. A cheap check warns when a file looks like it
 contains a secret, since these files end up in prompts.
+
+## Live refresh
+
+The TUI watches the folder and the directory of every file it lists (so an
+agent writing to its memory folder shows up too). After a change settles for
+~400 ms it re-scans in the background and swaps the tree in place — same file
+selected, same scroll position — and the status bar says what changed.
+Summaries of a file that changed are dropped. A full re-scan runs every minute
+regardless; where a watcher can't be created, known files are stat'ed every
+5 s instead. `--no-watch` turns all of it off.
 
 ## Summaries
 
