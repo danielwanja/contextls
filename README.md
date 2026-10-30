@@ -99,7 +99,8 @@ contextls --list-tools
 ## What it shows
 
 For each file: scope (managed → user → project → local → auto memory), load
-order, size, a rough token estimate (`≈`), last modified, git status
+order (auto-memory files aren't loaded in any order, so they're listed newest
+first), size, a rough token estimate (`≈`), last modified, git status
 (tracked / untracked / ignored), and when the tool actually loads it —
 always, on demand (subdirectory files), when a glob matches, manually, or as a
 fallback. `@path` imports are resolved and checked; files loaded by several

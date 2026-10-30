@@ -32,6 +32,7 @@ pub fn resolve_tool(def: &ToolDef, ctx: &Ctx) -> ToolReport {
     }
     special::finish(&def, ctx, &mut entries);
     dedupe(&mut entries);
+    sort_memory_newest_first(&mut entries);
     for (i, e) in entries.iter_mut().enumerate() {
         e.order = i + 1;
         e.tool = def.id.clone();
@@ -465,6 +466,27 @@ pub fn lexical_normalize(p: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// Memory files are not concatenated in any order, so "load order" means
+/// nothing for them; show the most recently written first. Other scopes keep
+/// their positions, and so do the slots the memory entries occupy.
+fn sort_memory_newest_first(entries: &mut [Entry]) {
+    let slots: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.scope == Scope::AutoMemory)
+        .map(|(i, _)| i)
+        .collect();
+    if slots.len() < 2 {
+        return;
+    }
+    let mut memory: Vec<Entry> = slots.iter().map(|&i| entries[i].clone()).collect();
+    // `None` (missing file) sorts before `Some`, so descending puts it last.
+    memory.sort_by(|a, b| b.mtime.cmp(&a.mtime).then_with(|| a.path.cmp(&b.path)));
+    for (slot, e) in slots.into_iter().zip(memory) {
+        entries[slot] = e;
+    }
 }
 
 fn dedupe(entries: &mut Vec<Entry>) {

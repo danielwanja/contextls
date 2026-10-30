@@ -36,6 +36,17 @@ fn lists_memories_of_the_matching_workspace() {
         &storage.join("abc123/GitHub.copilot-chat/memory-tool/memories/repo/gn000.md"),
         "# gn\n",
     );
+    // Memories list newest first: make react-apps.md the recent one.
+    let repo_mem = storage.join("abc123/GitHub.copilot-chat/memory-tool/memories/repo");
+    let now = std::time::SystemTime::now();
+    fs::File::open(repo_mem.join("react-apps.md"))
+        .unwrap()
+        .set_modified(now)
+        .unwrap();
+    fs::File::open(repo_mem.join("gn000.md"))
+        .unwrap()
+        .set_modified(now - std::time::Duration::from_secs(86_400))
+        .unwrap();
     // Another workspace: must not be listed.
     write(
         &storage.join("other/workspace.json"),
@@ -67,8 +78,11 @@ fn lists_memories_of_the_matching_workspace() {
         .map(|e| e["path"].as_str().unwrap())
         .collect();
     assert_eq!(memories.len(), 2, "{memories:?}");
-    assert!(memories[0].ends_with("memories/repo/gn000.md"));
-    assert!(memories[1].ends_with("memories/repo/react-apps.md"));
+    assert!(
+        memories[0].ends_with("memories/repo/react-apps.md"),
+        "newest first"
+    );
+    assert!(memories[1].ends_with("memories/repo/gn000.md"));
     assert!(
         v["tools"][0]["entries"]
             .as_array()
